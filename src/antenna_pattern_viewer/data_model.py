@@ -2,8 +2,9 @@
 Shared data model for antenna pattern viewer GUI.
 """
 from PyQt6.QtCore import QObject, pyqtSignal
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Set
 import logging
+from antenna_pattern_viewer.pattern_instance import PatternInstance
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,9 @@ class PatternDataModel(QObject):
     pattern_modified = pyqtSignal(object)  # Emits FarFieldSpherical pattern after modification
     view_parameters_changed = pyqtSignal(dict)  # Emits view params dict
     processing_applied = pyqtSignal(str)  # Emits processing type name
+    instances_changed = pyqtSignal()  # Emitted when instance list changes
+    active_instance_changed = pyqtSignal(object)  # Emits PatternInstance
+    comparison_set_changed = pyqtSignal(list)  # Emits list of instance IDs
     
     def __init__(self):
         super().__init__()
@@ -40,6 +44,11 @@ class PatternDataModel(QObject):
             'statistics_enabled': False,
             'statistic_type': 'mean',
         }
+
+        # Multi-pattern management
+        self._instances: Dict[str, PatternInstance] = {}
+        self._active_instance_id: Optional[str] = None
+        self._comparison_instance_ids: Set[str] = set()
     
     @property
     def pattern(self) -> Optional[Any]:
@@ -125,3 +134,116 @@ class PatternDataModel(QObject):
             Dictionary of all view parameters
         """
         return self._view_params.copy()
+    
+    def add_instance(self, instance: PatternInstance):
+        """Add a new pattern instance."""
+        self._instances[instance.instance_id] = instance
+        logger.info(f"Added pattern instance: {instance.display_name}")
+        self.instances_changed.emit()
+        
+        # Set as active if it's the first instance
+        if len(self._instances) == 1:
+            self.set_active_instance(instance.instance_id)
+    
+    def remove_instance(self, instance_id: str):
+        """Remove a pattern instance."""
+        if instance_id in self._instances:
+            instance = self._instances[instance_id]
+            
+            # Remove from comparison set if present
+            self._comparison_instance_ids.discard(instance_id)
+            
+            # Clear active if this was active
+            if self._active_instance_id == instance_id:
+                self._active_instance_id = None
+                remaining = list(self._instances.keys())
+                if remaining:
+                    # Set first remaining as active
+                    new_active = [k for k in remaining if k != instance_id][0] if len(remaining) > 1 else remaining[0]
+                    self.set_active_instance(new_active)
+                else:
+                    self.active_instance_changed.emit(None)
+                    self.pattern_loaded.emit(None)
+            
+            del self._instances[instance_id]
+            logger.info(f"Removed pattern instance: {instance.display_name}")
+            self.instances_changed.emit()
+    
+    def get_instance(self, instance_id: str) -> Optional[PatternInstance]:
+        """Get a pattern instance by ID."""
+        return self._instances.get(instance_id)
+    
+    def get_all_instances(self) -> List[PatternInstance]:
+        """Get all pattern instances."""
+        return list(self._instances.values())
+    
+    def set_active_instance(self, instance_id: str):
+        """Set the active pattern instance."""
+        if instance_id not in self._instances:
+            logger.warning(f"Cannot set active instance - ID not found: {instance_id}")
+            return
+        
+        # Save current view params to old active instance
+        if self._active_instance_id:
+            old_instance = self._instances.get(self._active_instance_id)
+            if old_instance:
+                old_instance.view_params = self._view_params.copy()
+        
+        # Set new active
+        self._active_instance_id = instance_id
+        instance = self._instances[instance_id]
+        
+        # Restore view params from instance
+        if instance.view_params:
+            self._view_params.update(instance.view_params)
+            self.view_parameters_changed.emit(self._view_params)
+        
+        # Update pattern
+        self._pattern = instance.pattern
+        self._file_path = str(instance.source_file) if instance.source_file else None
+        
+        logger.info(f"Set active instance: {instance.display_name}")
+        self.active_instance_changed.emit(instance)
+        self.pattern_loaded.emit(instance.pattern)
+    
+    def get_active_instance(self) -> Optional[PatternInstance]:
+        """Get the currently active pattern instance."""
+        if self._active_instance_id:
+            return self._instances.get(self._active_instance_id)
+        return None
+    
+    def rename_instance(self, instance_id: str, new_name: str):
+        """Rename a pattern instance."""
+        if instance_id in self._instances:
+            self._instances[instance_id].display_name = new_name
+            logger.info(f"Renamed instance {instance_id} to: {new_name}")
+            self.instances_changed.emit()
+    
+    def add_to_comparison(self, instance_id: str):
+        """Add an instance to the comparison set."""
+        if instance_id in self._instances:
+            self._comparison_instance_ids.add(instance_id)
+            logger.info(f"Added to comparison: {self._instances[instance_id].display_name}")
+            self.comparison_set_changed.emit(list(self._comparison_instance_ids))
+    
+    def remove_from_comparison(self, instance_id: str):
+        """Remove an instance from the comparison set."""
+        self._comparison_instance_ids.discard(instance_id)
+        logger.info(f"Removed from comparison: {instance_id}")
+        self.comparison_set_changed.emit(list(self._comparison_instance_ids))
+    
+    def get_comparison_instances(self) -> List[PatternInstance]:
+        """Get all instances in the comparison set."""
+        return [self._instances[iid] for iid in self._comparison_instance_ids 
+                if iid in self._instances]
+    
+    def update_view_params(self, params: Dict[str, Any]):
+        """
+        Update view parameters and emit signal.
+        
+        Args:
+            params: Dictionary of view parameters to update
+        """
+        self._view_params.update(params)
+        logger.debug(f"View parameters updated: {list(params.keys())}")
+        self.view_parameters_changed.emit(self._view_params)

@@ -13,6 +13,7 @@ from antenna_pattern_viewer.widgets.control_panel_widget import ControlPanelWidg
 from antenna_pattern_viewer.widgets.plot_2d_widget import Plot2DWidget
 from antenna_pattern_viewer.widgets.plot_3d_widget import Plot3DWidget
 from antenna_pattern_viewer.widgets.data_display_widget import DataDisplayWidget
+from antenna_pattern_viewer.widgets.file_manager_widget import FileManagerWidget
 
 logger = logging.getLogger(__name__)
 
@@ -45,52 +46,74 @@ class AntennaPatternWidget(QMainWindow):
         self.setup_status_bar()
         self.connect_signals()
         
+        # TEMPORARY: Clear saved layout for testing
+        settings = QSettings("AntPy", "AntennaPatternViewer")
+        settings.clear()
+        
         # Load saved window state if available
-        self.load_settings()
+        # self.load_settings()  # Comment this out temporarily
         
         logger.info("AntennaPatternWidget initialized")
     
     def setup_docks(self):
-        """Create and arrange dock widgets."""
+        """Create and arrange dock widgets in a two-column layout with tabbed center."""
         
-        # Control Panel Dock (left side)
+        # Create all dock widgets
+        self.file_manager_dock = QDockWidget("File Manager", self)
+        self.file_manager_dock.setObjectName("FileManagerDock")
+        self.file_manager = FileManagerWidget(self.data_model)
+        self.file_manager_dock.setWidget(self.file_manager)
+        
         self.control_dock = QDockWidget("Control Panel", self)
-        self.control_dock.setObjectName("ControlDock")  # For state saving
+        self.control_dock.setObjectName("ControlDock")
         self.control_panel = ControlPanelWidget(self.data_model)
         self.control_dock.setWidget(self.control_panel)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.control_dock)
         
-        # 2D Plot Dock (center-top)
         self.plot_2d_dock = QDockWidget("2D View", self)
         self.plot_2d_dock.setObjectName("Plot2DDock")
         self.plot_2d = Plot2DWidget(self.data_model)
         self.plot_2d_dock.setWidget(self.plot_2d)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.plot_2d_dock)
         
-        # 3D Plot Dock (center-bottom)
         self.plot_3d_dock = QDockWidget("3D View", self)
         self.plot_3d_dock.setObjectName("Plot3DDock")
         self.plot_3d = Plot3DWidget(self.data_model)
         self.plot_3d_dock.setWidget(self.plot_3d)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.plot_3d_dock)
         
-        # Data Display Dock (bottom)
         self.data_dock = QDockWidget("Data Display", self)
         self.data_dock.setObjectName("DataDock")
         self.data_display = DataDisplayWidget(self.data_model)
         self.data_dock.setWidget(self.data_display)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.data_dock)
         
-        # Set initial layout - split 2D and 3D vertically
-        self.splitDockWidget(self.plot_2d_dock, self.plot_3d_dock, Qt.Orientation.Vertical)
+        # Build layout: LEFT COLUMN | TABBED CENTER
         
-        # Set initial sizes
+        # Left Column: File Manager + Control Panel stacked vertically
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.file_manager_dock)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.control_dock)
+        self.splitDockWidget(self.file_manager_dock, self.control_dock, Qt.Orientation.Vertical)
+        
+        # Center: Tabbed plots and data display
+        # Add first dock to the right
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.plot_2d_dock)
+        
+        # Tabify the others on top of it
+        self.tabifyDockWidget(self.plot_2d_dock, self.plot_3d_dock)
+        self.tabifyDockWidget(self.plot_2d_dock, self.data_dock)
+        
+        # Make 2D plot the active tab
+        self.plot_2d_dock.raise_()
+        
+        # Size constraints
+        self.file_manager_dock.setMinimumHeight(200)
         self.control_dock.setMinimumWidth(350)
         self.control_dock.setMaximumWidth(500)
-        self.data_dock.setMinimumHeight(150)
         
-        # Initially hide 3D view
-        self.plot_3d_dock.setVisible(False)
+        # Set vertical split in left column (file manager smaller, control panel larger)
+        self.resizeDocks(
+            [self.file_manager_dock, self.control_dock],
+            [250, 450],
+            Qt.Orientation.Vertical
+        )
+        
     
     def setup_menus(self):
         """Create menu bar - disabled for embedded mode."""
@@ -274,3 +297,15 @@ class AntennaPatternWidget(QMainWindow):
         """Handle window close event."""
         self.save_settings()
         event.accept()
+
+    def reset_to_default_layout(self):
+        """Reset dock layout to default configuration."""
+        # Clear saved state
+        settings = QSettings("AntPy", "AntennaPatternViewer")
+        settings.remove("geometry")
+        settings.remove("windowState")
+        
+        # Reapply default layout
+        self.setup_docks()
+        
+        logger.info("Layout reset to default")

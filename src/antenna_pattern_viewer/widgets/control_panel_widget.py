@@ -57,6 +57,7 @@ class ControlPanelWidget(QWidget):
         self.processing_tab.apply_phase_center_signal.connect(self.on_apply_phase_center)
         self.processing_tab.apply_mars_signal.connect(self.on_apply_mars)
         self.processing_tab.polarization_changed.connect(self.on_polarization_changed)
+        self.processing_tab.coordinate_format_changed.connect(self.on_coordinate_format_changed)  # ADD THIS
         
         # Connect analysis signals
         self.analysis_tab.calculate_swe_signal.connect(self.on_calculate_swe)
@@ -68,6 +69,9 @@ class ControlPanelWidget(QWidget):
         params = self.view_tab.get_current_parameters()
         self.data_model.update_view_params(params)
         logger.debug("View parameters updated from view tab")
+        
+        # Trigger plot update through data model
+        self.data_model.view_parameters_changed.emit(params)
     
     def on_pattern_loaded(self, pattern):
         """Update all tabs when new pattern is loaded."""
@@ -134,19 +138,23 @@ class ControlPanelWidget(QWidget):
         if self.data_model.pattern is None:
             return
         
+        # Only change if different from current
+        if new_polarization == self.data_model.pattern.polarization:
+            return
+        
         try:
-            # Change polarization
+            # Assign new polarization (converts internally)
             pattern = self.data_model.pattern.copy()
-            pattern.change_polarization(new_polarization)
+            pattern.assign_polarization(new_polarization)
             
             # Update model
             self.data_model.modify_pattern(pattern)
-            self.data_model.processing_applied.emit("polarization_change")
+            self.data_model.processing_applied.emit("polarization_conversion")
             
-            logger.info(f"Polarization changed to: {new_polarization}")
+            logger.info(f"Polarization converted to: {new_polarization}")
             
         except Exception as e:
-            logger.error(f"Failed to change polarization: {e}")
+            logger.error(f"Failed to convert polarization: {e}")
     
     def on_calculate_swe(self):
         """Handle SWE calculation request."""
@@ -163,3 +171,22 @@ class ControlPanelWidget(QWidget):
         
         logger.info("Near-field calculation requested (not yet implemented)")
         # TODO: Implement near-field calculation
+
+    def on_coordinate_format_changed(self, new_format):
+        """Handle coordinate format change request."""
+        if self.data_model.pattern is None:
+            return
+        
+        try:
+            # Transform coordinates
+            pattern = self.data_model.pattern.copy()
+            pattern.transform_coordinates(new_format)
+            
+            # Update model
+            self.data_model.modify_pattern(pattern)
+            self.data_model.processing_applied.emit("coordinate_transform")
+            
+            logger.info(f"Coordinates transformed to: {new_format}")
+            
+        except Exception as e:
+            logger.error(f"Failed to transform coordinates: {e}")

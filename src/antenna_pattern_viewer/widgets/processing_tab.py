@@ -16,7 +16,7 @@ class ProcessingTab(QWidget):
     # Signals for processing operations
     apply_phase_center_signal = pyqtSignal(float, float, float, float)  # x, y, z, frequency
     apply_mars_signal = pyqtSignal(float)  # max_radial_extent
-    polarization_changed = pyqtSignal()
+    polarization_changed = pyqtSignal(str)  # NEW: Add str argument for polarization
     coordinate_format_changed = pyqtSignal(str)  # 'central' or 'sided'
     
     def __init__(self, parent=None):
@@ -43,7 +43,7 @@ class ProcessingTab(QWidget):
         self.polarization_combo = QComboBox()
         self.polarization_combo.addItems(["Theta", "Phi", "X (Ludwig-3)", 
                                          "Y (Ludwig-3)", "RHCP", "LHCP"])
-        self.polarization_combo.currentTextChanged.connect(self.polarization_changed.emit)
+        self.polarization_combo.currentTextChanged.connect(self.on_polarization_combo_changed)
         pol_layout.addWidget(self.polarization_combo)
         pol_group.addLayout(pol_layout)
         
@@ -313,3 +313,17 @@ class ProcessingTab(QWidget):
         """Reset checkboxes when loading new pattern."""
         self.apply_phase_center_check.setChecked(False)
         self.apply_mars_check.setChecked(False)
+
+    def on_polarization_combo_changed(self, text):
+        """Handle polarization combo box change."""
+        # Map combo box text to polarization string
+        pol_map = {
+            "Theta": "theta",
+            "Phi": "phi",
+            "X (Ludwig-3)": "x",
+            "Y (Ludwig-3)": "y",
+            "RHCP": "rhcp",
+            "LHCP": "lhcp"
+        }
+        new_pol = pol_map.get(text, "theta")
+        self.polarization_changed.emit(new_pol)

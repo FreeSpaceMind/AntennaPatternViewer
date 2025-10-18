@@ -5,7 +5,6 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFileDialog, QMessageBox
 from PyQt6.QtCore import pyqtSignal
 import logging
 
-# Import existing plot widget (to be migrated from antenna_pattern/gui)
 from antenna_pattern_viewer.widgets.plot_widget import PlotWidget
 
 logger = logging.getLogger(__name__)
@@ -42,26 +41,75 @@ class Plot2DWidget(QWidget):
     
     def on_pattern_changed(self, pattern):
         """Update plot when pattern changes."""
-        # Just store the pattern - don't replot yet
         self.plot_widget.current_pattern = pattern
         
-        # Clear the plot if no pattern
         if pattern is None:
             self.plot_widget.clear_plot()
+            self.plot_updated.emit()
+            logger.debug("Plot cleared - no pattern")
+            return
         
-        self.plot_updated.emit()
+        # Trigger plot update with current view parameters
+        self.update_plot_from_model()
+        
         logger.debug("Pattern updated in plot widget")
     
     def on_view_params_changed(self, params):
         """Update plot when view parameters change."""
-        # Update plot widget settings based on params
-        if 'normalize' in params:
-            self.plot_widget.normalize_check.setChecked(params['normalize'])
+        if self.plot_widget.current_pattern is None:
+            return
         
-        # The plot_widget will automatically replot when its controls change
-        # through its internal signal connections
+        # Trigger plot update
+        self.update_plot_from_model()
         
-        logger.debug("Plot settings updated from view parameters")
+        logger.debug("Plot updated from view parameters")
+    
+    def update_plot_from_model(self):
+        """Update the plot using current pattern and view parameters."""
+        pattern = self.data_model.pattern
+        if pattern is None:
+            return
+        
+        # Get view parameters from model
+        params = self.data_model._view_params
+        
+        # Extract parameters
+        frequencies = params.get('selected_frequencies', [])
+        phi_angles = params.get('selected_phi', [])
+        
+        # If no selection, use defaults
+        if not frequencies:
+            frequencies = [pattern.frequencies[0]] if len(pattern.frequencies) > 0 else []
+        if not phi_angles:
+            phi_angles = [0]  # Default phi cut
+        
+        plot_type = params.get('plot_type', '1d_cut')
+        component = params.get('component', 'e_co')
+        value_type = params.get('value_type', 'gain')
+        show_cross_pol = params.get('show_cross_pol', False)
+        statistics_enabled = params.get('statistics_enabled', False)
+        show_range = params.get('show_range', True)
+        statistic_type = params.get('statistic_type', 'mean')
+        percentile_range = params.get('percentile_range', (25, 75))
+        
+        # Call plot widget's update_plot method
+        try:
+            self.plot_widget.update_plot(
+                pattern=pattern,
+                frequencies=frequencies,
+                phi_angles=phi_angles,
+                value_type=value_type,
+                show_cross_pol=show_cross_pol,
+                plot_format=plot_type,
+                component=component,
+                statistics_enabled=statistics_enabled,
+                show_range=show_range,
+                statistic_type=statistic_type,
+                percentile_range=percentile_range
+            )
+            self.plot_updated.emit()
+        except Exception as e:
+            logger.error(f"Failed to update plot: {e}")
     
     def export_plot(self):
         """Export current plot to image file."""
@@ -80,22 +128,14 @@ class Plot2DWidget(QWidget):
             "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*.*)"
         )
         
-        if not file_path:
-            return
-        
-        try:
-            # Save the matplotlib figure
-            self.plot_widget.figure.savefig(
-                file_path,
-                dpi=300,
-                bbox_inches='tight'
-            )
-            logger.info(f"Plot exported to: {file_path}")
-            
-        except Exception as e:
-            logger.error(f"Failed to export plot: {e}")
-            QMessageBox.critical(
-                self,
-                "Export Error",
-                f"Failed to export plot:\n{str(e)}"
-            )
+        if file_path:
+            try:
+                self.plot_widget.figure.savefig(file_path, dpi=300, bbox_inches='tight')
+                logger.info(f"Plot exported to: {file_path}")
+            except Exception as e:
+                logger.error(f"Failed to export plot: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Export Error",
+                    f"Failed to export plot:\n{str(e)}"
+                )
