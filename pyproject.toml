@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antenna-pattern-viewer"
+version = "1.0.0"
+description = "GUI application for visualizing antenna far-field patterns"
+authors = [{name = "Justin Long", email = "justinwlong1@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+
+keywords = ["antenna", "pattern", "viewer", "GUI", "visualization"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+dependencies = [
+    "farfield-spherical>=1.0.0",
+    "PyQt6>=6.4.0",
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+]
+
+[project.scripts]
+antenna-pattern-viewer = "antenna_pattern_viewer.__main__:main"
+
+[project.gui-scripts]
+antenna-pattern-viewer-gui = "antenna_pattern_viewer.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/antenna-pattern-viewer"
+Documentation = "https://antenna-pattern-viewer.readthedocs.io"
+Repository = "https://github.com/yourusername/antenna-pattern-viewer"
+"Bug Tracker" = "https://github.com/yourusername/antenna-pattern-viewer/issues"
+
+[tool.setuptools]
+packages = [
+    "antenna_pattern_viewer",
+    "antenna_pattern_viewer.widgets",
+    "antenna_pattern_viewer.workers",
+    "antenna_pattern_viewer.dialogs"
+]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--strict-markers"
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
