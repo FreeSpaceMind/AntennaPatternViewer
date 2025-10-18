@@ -42,11 +42,15 @@ class Plot2DWidget(QWidget):
     
     def on_pattern_changed(self, pattern):
         """Update plot when pattern changes."""
+        # Just store the pattern - don't replot yet
         self.plot_widget.current_pattern = pattern
-        self.plot_widget.replot_current_data()
-        self.plot_updated.emit()
         
-        logger.debug("Plot updated with new/modified pattern")
+        # Clear the plot if no pattern
+        if pattern is None:
+            self.plot_widget.clear_plot()
+        
+        self.plot_updated.emit()
+        logger.debug("Pattern updated in plot widget")
     
     def on_view_params_changed(self, params):
         """Update plot when view parameters change."""

@@ -24,6 +24,17 @@ class PlotWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_pattern = None
+        self.current_frequencies = None
+        self.current_phi_angles = None
+        self.current_value_type = 'gain'
+        self.current_show_cross_pol = False
+        self.current_plot_format = '1d_cut'
+        self.current_component = 'e_co'
+        self.current_statistics_enabled = False
+        self.current_show_range = True
+        self.current_statistic_type = 'mean'
+        self.current_percentile_range = (25, 75)
+        self.current_colorbar = None
         
         # Store axis limits for each plot type
         self.axis_limits_memory = {
@@ -167,7 +178,7 @@ class PlotWidget(QWidget):
         import numpy as np
         from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_pattern_statistics
         
-        # Store current parameters for formatting updates
+        # Store current parameters for replotting
         self.current_pattern = pattern
         self.current_frequencies = frequencies
         self.current_phi_angles = phi_angles

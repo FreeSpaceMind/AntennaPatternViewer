@@ -1,20 +1,12 @@
 """
 Top-level embeddable antenna pattern widget with dockable interface.
 """
-from PyQt6.QtWidgets import (QMainWindow, QDockWidget, QFileDialog, 
-                              QMessageBox, QStatusBar, QInputDialog)
+from PyQt6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar)
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
-from PyQt6.QtGui import QAction
 from pathlib import Path
 import logging
 
-from farfield_spherical import (
-    FarFieldSpherical, 
-    read_cut, 
-    read_ffd, 
-    load_pattern_npz,
-    save_pattern_npz
-)
+from farfield_spherical import FarFieldSpherical
 
 from antenna_pattern_viewer.data_model import PatternDataModel
 from antenna_pattern_viewer.widgets.control_panel_widget import ControlPanelWidget
@@ -101,48 +93,11 @@ class AntennaPatternWidget(QMainWindow):
         self.plot_3d_dock.setVisible(False)
     
     def setup_menus(self):
-        """Create menu bar."""
-        menubar = self.menuBar()
-        
-        # File menu
-        file_menu = menubar.addMenu("&File")
-        
-        open_action = QAction("&Open Pattern...", self)
-        open_action.setShortcut("Ctrl+O")
-        open_action.triggered.connect(self.open_pattern)
-        file_menu.addAction(open_action)
-        
-        save_action = QAction("&Save Pattern...", self)
-        save_action.setShortcut("Ctrl+S")
-        save_action.triggered.connect(self.save_pattern)
-        file_menu.addAction(save_action)
-        
-        file_menu.addSeparator()
-        
-        export_action = QAction("&Export Plot...", self)
-        export_action.setShortcut("Ctrl+E")
-        export_action.triggered.connect(self.export_plot)
-        file_menu.addAction(export_action)
-        
-        # View menu
-        view_menu = menubar.addMenu("&View")
-        view_menu.addAction(self.control_dock.toggleViewAction())
-        view_menu.addAction(self.plot_2d_dock.toggleViewAction())
-        view_menu.addAction(self.plot_3d_dock.toggleViewAction())
-        view_menu.addAction(self.data_dock.toggleViewAction())
-        
-        view_menu.addSeparator()
-        
-        reset_action = QAction("&Reset Layout", self)
-        reset_action.triggered.connect(self.reset_layout)
-        view_menu.addAction(reset_action)
-        
-        # Help menu
-        help_menu = menubar.addMenu("&Help")
-        
-        about_action = QAction("&About", self)
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        """Create menu bar - disabled for embedded mode."""
+        # Menu bar removed since this widget is designed to be embedded
+        # File operations can be done programmatically through the data model
+        # or through a parent application's menu system
+        pass
     
     def setup_status_bar(self):
         """Create status bar."""
@@ -284,18 +239,6 @@ class AntennaPatternWidget(QMainWindow):
         self.data_dock.setVisible(True)
         
         self.status_message.emit("Layout reset to default")
-    
-    def show_about(self):
-        """Show about dialog."""
-        QMessageBox.about(
-            self,
-            "About Antenna Pattern Viewer",
-            "<h3>Antenna Pattern Viewer</h3>"
-            "<p>Version 1.0.0</p>"
-            "<p>A GUI application for visualizing antenna far-field patterns.</p>"
-            "<p>Built with PyQt6 and FarFieldSpherical library.</p>"
-            "<p>Copyright © 2024 Justin Long</p>"
-        )
     
     def on_pattern_loaded(self, pattern):
         """Handle pattern loaded event."""
