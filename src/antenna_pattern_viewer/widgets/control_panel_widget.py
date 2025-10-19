@@ -232,9 +232,7 @@ class ControlPanelWidget(QWidget):
             # Create and configure worker thread
             self.swe_worker = SWEWorker(
                 self.data_model.pattern,
-                radius,
-                frequency,
-                adaptive
+                frequency
             )
             
             # Connect signals
