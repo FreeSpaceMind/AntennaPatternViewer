@@ -305,3 +305,19 @@ class ViewTab(QWidget):
     def get_percentile_range(self):
         """Get percentile range."""
         return (self.percentile_lower_spin.value(), self.percentile_upper_spin.value())
+    
+    def get_current_parameters(self):
+        """Get current view parameters as a dictionary."""
+        params = {
+            'selected_frequencies': self.get_selected_frequencies(),
+            'selected_phi': self.get_selected_phi_angles(),
+            'plot_type': self.get_plot_format(),
+            'component': self.get_component(),
+            'value_type': self.get_value_type(),
+            'show_cross_pol': self.get_show_cross_pol(),
+            'statistics_enabled': self.get_statistics_enabled(),
+            'show_range': self.get_show_range(),
+            'statistic_type': self.get_statistic_type(),
+            'percentile_range': self.get_percentile_range()
+        }
+        return params

@@ -28,8 +28,16 @@ class PatternDataModel(QObject):
     
     def __init__(self):
         super().__init__()
-        self._pattern: Optional[Any] = None  # FarFieldSpherical object
+        self._pattern: Optional[Any] = None  # Current (possibly processed) pattern
+        self._original_pattern: Optional[Any] = None  # Original unprocessed pattern
         self._file_path: Optional[str] = None
+        
+        # Processing state flags
+        self._processing_state = {
+            'phase_center_translation': None,  # [x, y, z] or None
+            'mars_max_extent': None,  # float or None
+            'coordinate_format': None,  # 'central', 'sided', or None (original)
+        }
         
         # View parameters
         self._view_params = {
@@ -55,6 +63,11 @@ class PatternDataModel(QObject):
         """Get current pattern."""
         return self._pattern
     
+    @property
+    def original_pattern(self) -> Optional[Any]:
+        """Get original unprocessed pattern."""
+        return self._original_pattern
+    
     def set_pattern(self, pattern: Any, file_path: Optional[str] = None):
         """
         Set new pattern and emit signal.
@@ -63,8 +76,16 @@ class PatternDataModel(QObject):
             pattern: FarFieldSpherical object
             file_path: Optional path to the source file
         """
+        self._original_pattern = pattern
         self._pattern = pattern
         self._file_path = file_path
+        
+        # Reset processing state
+        self._processing_state = {
+            'phase_center_translation': None,
+            'mars_max_extent': None,
+            'coordinate_format': None,
+        }
         
         # Reset view parameters when loading new pattern
         if pattern is not None:
@@ -74,6 +95,69 @@ class PatternDataModel(QObject):
         
         logger.info(f"Pattern loaded: {file_path if file_path else 'from memory'}")
         self.pattern_loaded.emit(pattern)
+
+    def apply_processing(self):
+        """
+        Apply all enabled processing operations to the original pattern.
+        This always starts from the original pattern to avoid stacking errors.
+        """
+        if self._original_pattern is None:
+            return
+        
+        # Start with a copy of the original
+        processed = self._original_pattern.copy()
+        
+        # Apply coordinate transformation first (if any)
+        if self._processing_state['coordinate_format'] is not None:
+            processed.transform_coordinates(self._processing_state['coordinate_format'])
+        
+        # Apply phase center translation (if any)
+        if self._processing_state['phase_center_translation'] is not None:
+            import numpy as np
+            translation = np.array(self._processing_state['phase_center_translation'])
+            processed.translate(translation)
+        
+        # Apply MARS (if any)
+        if self._processing_state['mars_max_extent'] is not None:
+            processed.apply_mars(self._processing_state['mars_max_extent'])
+        
+        # Update current pattern
+        self._pattern = processed
+        logger.info("Processing applied to pattern")
+        self.pattern_modified.emit(processed)
+    
+    def set_phase_center_translation(self, translation: Optional[list]):
+        """
+        Enable or disable phase center translation.
+        
+        Args:
+            translation: [x, y, z] in meters, or None to disable
+        """
+        self._processing_state['phase_center_translation'] = translation
+        self.apply_processing()
+        self.processing_applied.emit("phase_center_translation")
+    
+    def set_mars(self, max_extent: Optional[float]):
+        """
+        Enable or disable MARS.
+        
+        Args:
+            max_extent: Maximum radial extent in meters, or None to disable
+        """
+        self._processing_state['mars_max_extent'] = max_extent
+        self.apply_processing()
+        self.processing_applied.emit("mars")
+    
+    def set_coordinate_format(self, format: Optional[str]):
+        """
+        Set coordinate format transformation.
+        
+        Args:
+            format: 'central', 'sided', or None for original format
+        """
+        self._processing_state['coordinate_format'] = format
+        self.apply_processing()
+        self.processing_applied.emit("coordinate_format")
     
     def modify_pattern(self, pattern: Any):
         """
@@ -199,8 +283,8 @@ class PatternDataModel(QObject):
             self.view_parameters_changed.emit(self._view_params)
         
         # Update pattern
-        self._pattern = instance.pattern
-        self._file_path = str(instance.source_file) if instance.source_file else None
+        file_path = str(instance.source_file) if instance.source_file else None
+        self.set_pattern(instance.pattern, file_path=file_path)
         
         logger.info(f"Set active instance: {instance.display_name}")
         self.active_instance_changed.emit(instance)

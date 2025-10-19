@@ -473,13 +473,6 @@ class PlotWidget(QWidget):
                 statistic_type=self.current_statistic_type,
                 percentile_range=self.current_percentile_range
             )
-            
-    def update_plot_formatting(self):
-        """Update plot formatting without replotting data."""
-        if self.figure.axes:
-            ax = self.figure.axes[0]
-            self.apply_plot_formatting(ax)
-            self.canvas.draw()
     
     def save_plot(self, filename):
         """Save the current plot to file."""
@@ -545,3 +538,29 @@ class PlotWidget(QWidget):
         self.y_theta_max_edit.setText('')
         self.z_min_edit.setText('')
         self.z_max_edit.setText('')
+
+    def update_plot_formatting(self):
+        """Update plot formatting without replotting data."""
+        if not self.figure.axes:
+            return
+            
+        ax = self.figure.axes[0]
+        
+        # Apply grid
+        ax.grid(self.grid_check.isChecked())
+        
+        # Apply axis limits
+        try:
+            x_min = self.x_phi_min_edit.text()
+            x_max = self.x_phi_max_edit.text()
+            if x_min and x_max:
+                ax.set_xlim(float(x_min), float(x_max))
+            
+            y_min = self.y_theta_min_edit.text()
+            y_max = self.y_theta_max_edit.text()
+            if y_min and y_max:
+                ax.set_ylim(float(y_min), float(y_max))
+        except ValueError:
+            pass  # Invalid input, ignore
+        
+        self.canvas.draw()

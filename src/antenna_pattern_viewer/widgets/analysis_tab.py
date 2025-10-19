@@ -308,6 +308,18 @@ class AnalysisTab(QWidget):
         format_map = {"Central": "central", "Sided": "sided"}
         return format_map.get(self.processing_tab.coord_format_combo.currentText(), "central")
     
+    def get_swe_adaptive(self):
+        """Get adaptive mode state."""
+        if hasattr(self, 'swe_adaptive_check'):
+            return self.swe_adaptive_check.isChecked()
+        return False
+
+    def get_swe_radius(self):
+        """Get SWE radius."""
+        if hasattr(self, 'swe_radius_spin'):
+            return self.swe_radius_spin.value()
+        return 1.0  # Default
+
     def get_swe_frequency(self):
         """Get selected frequency for SWE."""
         if self.current_pattern is None or self.swe_freq_combo.currentIndex() < 0:
@@ -318,8 +330,10 @@ class AnalysisTab(QWidget):
     # Getter methods for near field parameters
     def get_nf_surface_type(self):
         """Get near field surface type."""
-        return "spherical" if "Spherical" in self.nf_surface_combo.currentText() else "planar"
-    
+        if hasattr(self, 'nf_surface_combo'):
+            return self.nf_surface_combo.currentText()
+        return "Spherical Surface"
+
     def get_nf_sphere_params(self):
         """Get spherical surface parameters."""
         return {
