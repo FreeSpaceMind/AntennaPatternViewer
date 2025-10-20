@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 class ControlPanelWidget(QWidget):
     """Control panel with tabbed interface for pattern controls."""
+
+    nearfield_calculated = pyqtSignal(dict)  # Emits nearfield data
     
     def __init__(self, data_model, parent=None):
         super().__init__(parent)
@@ -221,8 +223,6 @@ class ControlPanelWidget(QWidget):
             from antenna_pattern_viewer.widgets.swe_worker import SWEWorker
             
             # Get parameters from analysis tab
-            adaptive = self.analysis_tab.get_swe_adaptive()
-            radius = None if adaptive else self.analysis_tab.get_swe_radius()
             frequency = self.analysis_tab.get_swe_frequency()
             
             # Update button state
@@ -249,15 +249,16 @@ class ControlPanelWidget(QWidget):
             self.analysis_tab.calculate_swe_btn.setEnabled(True)
             self.analysis_tab.calculate_swe_btn.setText("Calculate SWE Coefficients")
 
-    def on_swe_finished(self, swe_data):
+    def on_swe_finished(self, swe_obj):
         """Handle successful SWE calculation."""
         # Store SWE data in pattern
         pattern = self.data_model.pattern
-        if hasattr(pattern, 'swe'):
-            pattern.swe = swe_data
+        if not hasattr(pattern, 'swe'):
+            pattern.swe = {}
+        pattern.swe[swe_obj.frequency] = swe_obj
         
         # Display results
-        self.analysis_tab.display_swe_results(swe_data)
+        self.analysis_tab.display_swe_results(swe_obj)
         
         # Re-enable button
         self.analysis_tab.calculate_swe_btn.setEnabled(True)
@@ -285,12 +286,105 @@ class ControlPanelWidget(QWidget):
             return
         
         try:
-            # Get near field parameters
+            import numpy as np
+            from swe import cartesian_to_spherical
+            
             surface_type = self.analysis_tab.get_nf_surface_type()
             
-            # This would need implementation based on your nearfield calculation logic
-            # For now, just log that it was requested
-            logger.info(f"Near field calculation requested for {surface_type} surface")
+            # Get the SWE object from the pattern
+            pattern = self.data_model.pattern
+            if not hasattr(pattern, 'swe') or not pattern.swe:
+                logger.error("No SWE data available")
+                return
+            
+            # Get the SWE object for the first (or selected) frequency
+            freq = list(pattern.swe.keys())[0]
+            swe = pattern.swe[freq]
+            
+            if surface_type == "spherical":
+                # Get spherical parameters
+                params = self.analysis_tab.get_nf_sphere_params()
+                
+                # Create theta and phi arrays (in degrees)
+                theta_deg = np.linspace(0, 180, params['theta_points'])
+                phi_deg = np.linspace(0, 360, params['phi_points'])
+                
+                # Convert to radians
+                theta_rad = np.radians(theta_deg)
+                phi_rad = np.radians(phi_deg)
+                
+                # Create meshgrid
+                THETA, PHI = np.meshgrid(theta_rad, phi_rad, indexing='ij')
+                R = np.full_like(THETA, params['radius'])
+                
+                # Evaluate near field
+                (E_r, E_theta, E_phi), (H_r, H_theta, H_phi) = swe.near_field(
+                    R.ravel(), THETA.ravel(), PHI.ravel()
+                )
+                
+                # Reshape to grid
+                shape = THETA.shape
+                nf_data = {
+                    'E_r': E_r.reshape(shape),
+                    'E_theta': E_theta.reshape(shape),
+                    'E_phi': E_phi.reshape(shape),
+                    'H_r': H_r.reshape(shape),
+                    'H_theta': H_theta.reshape(shape),
+                    'H_phi': H_phi.reshape(shape),
+                    'theta': theta_deg,
+                    'phi': phi_deg,
+                    'radius': params['radius'],
+                    'is_spherical': True
+                }
+                
+            else:  # planar
+                # Get planar parameters
+                params = self.analysis_tab.get_nf_plane_params()
+                
+                # Create x and y arrays
+                x = np.linspace(-params['x_extent'], params['x_extent'], params['x_points'])
+                y = np.linspace(-params['y_extent'], params['y_extent'], params['y_points'])
+                
+                # Create meshgrid
+                X, Y = np.meshgrid(x, y, indexing='ij')
+                Z = np.full_like(X, params['z_distance'])
+                
+                # Convert to spherical coordinates
+                r, theta, phi = cartesian_to_spherical(X.ravel(), Y.ravel(), Z.ravel())
+                
+                # Evaluate near field in spherical coordinates
+                (E_r, E_theta, E_phi), (H_r, H_theta, H_phi) = swe.near_field(r, theta, phi)
+                
+                # Reshape to grid
+                shape = X.shape
+                nf_data = {
+                    'E_r': E_r.reshape(shape),
+                    'E_theta': E_theta.reshape(shape),
+                    'E_phi': E_phi.reshape(shape),
+                    'H_r': H_r.reshape(shape),
+                    'H_theta': H_theta.reshape(shape),
+                    'H_phi': H_phi.reshape(shape),
+                    'x': x,
+                    'y': y,
+                    'x_extent': params['x_extent'],
+                    'y_extent': params['y_extent'],
+                    'z_distance': params['z_distance'],
+                    'is_spherical': False
+                }
+            
+            # Store in analysis tab
+            self.analysis_tab.nearfield_data = nf_data
+            
+            # Display results
+            self.analysis_tab.display_nearfield_results(nf_data)
+            
+            # Emit signal so plot widget can display it
+            self.nearfield_calculated.emit(nf_data)
+            
+            logger.info(f"Near field calculation completed for {surface_type} surface")
             
         except Exception as e:
-            logger.error(f"Failed to calculate near field: {e}")
+            import traceback
+            error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
+            self.analysis_tab.nf_results.setText(error_msg)
+            logger.error(f"Failed to calculate near field: {e}", exc_info=True)

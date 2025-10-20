@@ -169,13 +169,6 @@ class AnalysisTab(QWidget):
         self.calculate_nf_btn.setEnabled(False)
         nf_group.addWidget(self.calculate_nf_btn)
 
-        # View near field button (initially hidden)
-        self.view_nf_btn = QPushButton("View Near Field Plot")
-        self.view_nf_btn.clicked.connect(self.on_view_nearfield)
-        self.view_nf_btn.setEnabled(False)
-        self.view_nf_btn.setVisible(False)
-        nf_group.addWidget(self.view_nf_btn)
-
         # Results display
         self.nf_results = QTextEdit()
         self.nf_results.setReadOnly(True)
@@ -282,43 +275,12 @@ class AnalysisTab(QWidget):
         result_text += f"Total power: {total_power:.6e} W\n"
         
         self.swe_results.setText(result_text)
-    
-    def display_nearfield_results(self, nf_data):
-        """Display near field calculation results."""
-        self.nearfield_data = nf_data
-        
-        surface_type = "spherical" if nf_data.get('is_spherical', True) else "planar"
-        result_text = f"Near Field Calculated ({surface_type}):\n"
-        
-        if surface_type == "spherical":
-            result_text += f"Radius: {nf_data['radius']:.4f} m\n"
-            result_text += f"Theta points: {len(nf_data['theta'])}\n"
-            result_text += f"Phi points: {len(nf_data['phi'])}\n"
-        else:
-            result_text += f"X extent: ±{nf_data['x_extent']:.3f} m\n"
-            result_text += f"Y extent: ±{nf_data['y_extent']:.3f} m\n"
-            result_text += f"Z distance: {nf_data['z_distance']:.4f} m\n"
-            result_text += f"Grid: {len(nf_data['x'])} × {len(nf_data['y'])} points\n"
-        
-        self.nf_results.setText(result_text)
 
     # Getter methods for processing parameters
     def get_coordinate_format(self):
         """Get coordinate format from processing tab."""
         format_map = {"Central": "central", "Sided": "sided"}
         return format_map.get(self.processing_tab.coord_format_combo.currentText(), "central")
-    
-    def get_swe_adaptive(self):
-        """Get adaptive mode state."""
-        if hasattr(self, 'swe_adaptive_check'):
-            return self.swe_adaptive_check.isChecked()
-        return False
-
-    def get_swe_radius(self):
-        """Get SWE radius."""
-        if hasattr(self, 'swe_radius_spin'):
-            return self.swe_radius_spin.value()
-        return 1.0  # Default
 
     def get_swe_frequency(self):
         """Get selected frequency for SWE."""
@@ -398,13 +360,6 @@ class AnalysisTab(QWidget):
                 result_text += "\n"
         
         self.swe_results.setText(result_text)
-        
-    def on_view_nearfield(self):
-        """Handle view near field button click."""
-        if self.nearfield_data is not None:
-            from .nearfield_viewer import NearFieldViewer
-            viewer = NearFieldViewer(self.nearfield_data, parent=self)
-            viewer.show()
 
     def display_nearfield_results(self, nf_data):
         """Display near field calculation results."""
@@ -424,7 +379,3 @@ class AnalysisTab(QWidget):
             result_text += f"Grid: {len(nf_data['x'])} × {len(nf_data['y'])} points\n"
         
         self.nf_results.setText(result_text)
-        
-        # Show and enable view button
-        self.view_nf_btn.setVisible(True)
-        self.view_nf_btn.setEnabled(True)
