@@ -14,6 +14,7 @@ from antenna_pattern_viewer.widgets.plot_2d_widget import Plot2DWidget
 from antenna_pattern_viewer.widgets.plot_3d_widget import Plot3DWidget
 from antenna_pattern_viewer.widgets.data_display_widget import DataDisplayWidget
 from antenna_pattern_viewer.widgets.file_manager_widget import FileManagerWidget
+from antenna_pattern_viewer.widgets.plot_nearfield_widget import PlotNearFieldWidget
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,11 @@ class AntennaPatternWidget(QMainWindow):
         self.plot_3d_dock.setObjectName("Plot3DDock")
         self.plot_3d = Plot3DWidget(self.data_model)
         self.plot_3d_dock.setWidget(self.plot_3d)
+
+        self.plot_nearfield_dock = QDockWidget("Near Field", self)
+        self.plot_nearfield_dock.setObjectName("PlotNearFieldDock")
+        self.plot_nearfield = PlotNearFieldWidget(self.data_model)
+        self.plot_nearfield_dock.setWidget(self.plot_nearfield)
         
         self.data_dock = QDockWidget("Data Display", self)
         self.data_dock.setObjectName("DataDock")
@@ -98,6 +104,7 @@ class AntennaPatternWidget(QMainWindow):
         # Tabify the others on top of it
         self.tabifyDockWidget(self.plot_2d_dock, self.plot_3d_dock)
         self.tabifyDockWidget(self.plot_2d_dock, self.data_dock)
+        self.tabifyDockWidget(self.plot_2d_dock, self.plot_nearfield_dock)
         
         # Make 2D plot the active tab
         self.plot_2d_dock.raise_()
@@ -136,6 +143,9 @@ class AntennaPatternWidget(QMainWindow):
         
         # Status messages
         self.status_message.connect(self.status_bar.showMessage)
+
+        # Connect near field calculation signal to plot widget
+        self.control_panel.nearfield_calculated.connect(self.on_nearfield_calculated)
     
     def open_pattern(self):
         """Open a pattern file."""
@@ -274,6 +284,12 @@ class AntennaPatternWidget(QMainWindow):
             msg = f"Pattern loaded: {n_freq} freq, {n_theta}×{n_phi} points, {pol} pol"
             self.status_message.emit(msg)
             logger.info(msg)
+
+    def on_nearfield_calculated(self, near_field_data):
+        """Handle near field calculation completion."""
+        self.plot_nearfield.plot_near_field(near_field_data)
+        self.plot_nearfield_dock.raise_()
+        logger.info("Near field calculation displayed")
     
     def save_settings(self):
         """Save window geometry and dock states."""
