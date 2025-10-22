@@ -62,69 +62,6 @@ class CutFileDialog(QDialog):
             self.freq_start_spin.value() * 1e9,
             self.freq_end_spin.value() * 1e9
         )
-
-
-class SphFileDialog(QDialog):
-    """Dialog for getting parameters for .sph files."""
-    
-    def __init__(self, filename, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(f"Import {filename}")
-        self.setup_ui()
-    
-    def setup_ui(self):
-        layout = QFormLayout(self)
-        
-        # Frequency
-        self.freq_spin = QDoubleSpinBox()
-        self.freq_spin.setRange(0.001, 1000.0)
-        self.freq_spin.setValue(1.0)
-        self.freq_spin.setSuffix(" GHz")
-        self.freq_spin.setDecimals(3)
-        layout.addRow("Frequency:", self.freq_spin)
-        
-        # NMAX
-        self.nmax_spin = QSpinBox()
-        self.nmax_spin.setRange(1, 100)
-        self.nmax_spin.setValue(20)
-        layout.addRow("NMAX:", self.nmax_spin)
-        
-        # MMAX
-        self.mmax_spin = QSpinBox()
-        self.mmax_spin.setRange(1, 100)
-        self.mmax_spin.setValue(20)
-        layout.addRow("MMAX:", self.mmax_spin)
-        
-        # Theta samples
-        self.theta_samples_spin = QSpinBox()
-        self.theta_samples_spin.setRange(10, 1000)
-        self.theta_samples_spin.setValue(181)
-        layout.addRow("Theta Samples:", self.theta_samples_spin)
-        
-        # Phi samples
-        self.phi_samples_spin = QSpinBox()
-        self.phi_samples_spin.setRange(10, 1000)
-        self.phi_samples_spin.setValue(361)
-        layout.addRow("Phi Samples:", self.phi_samples_spin)
-        
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-    
-    def get_parameters(self):
-        """Return parameters for SWE to pattern conversion."""
-        return {
-            'frequency': self.freq_spin.value() * 1e9,
-            'NMAX': self.nmax_spin.value(),
-            'MMAX': self.mmax_spin.value(),
-            'theta_samples': self.theta_samples_spin.value(),
-            'phi_samples': self.phi_samples_spin.value()
-        }
     
 class FileManagerWidget(QWidget):
     """
@@ -334,33 +271,12 @@ class FileManagerWidget(QWidget):
                 pattern, _ = load_pattern_npz(str(file_path))
                 
             elif suffix == '.sph':
-                # Get SWE parameters from user
-                dialog = SphFileDialog(file_path.name, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    params = dialog.get_parameters()
-                    
-                    # Read SWE coefficients
-                    from farfield_spherical import read_ticra_sph
-                    from swe import SphericalWaveExpansion
-                    
-                    swe_data = read_ticra_sph(str(file_path), params['frequency'])
-                    
-                    # Create SWE object
-                    swe = SphericalWaveExpansion(
-                        Q1_coeffs=swe_data['Q1'],
-                        Q2_coeffs=swe_data['Q2'],
-                        frequency=params['frequency'],
-                        NMAX=params['NMAX'],
-                        MMAX=params['MMAX']
-                    )
-                    
-                    # Convert to pattern
-                    pattern = swe.to_pattern(
-                        theta_samples=params['theta_samples'],
-                        phi_samples=params['phi_samples']
-                    )
-                else:
-                    return  # User cancelled
+                # Read SWE and convert directly to pattern
+                from farfield_spherical.io.readers import read_ticra_sph
+                from farfield_spherical.io.swe_utils import create_pattern_from_swe
+                
+                swe = read_ticra_sph(str(file_path))
+                pattern = create_pattern_from_swe(swe)
                     
             else:
                 raise ValueError(f"Unsupported file format: {suffix}")
