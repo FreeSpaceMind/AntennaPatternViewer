@@ -156,7 +156,7 @@ class ControlPanelWidget(QWidget):
         
         try:
             # Detect original format
-            from antenna_pattern_viewer.plotting import detect_coordinate_format
+            from farfield_spherical import detect_coordinate_format
             original_format = detect_coordinate_format(self.data_model.original_pattern)
             
             # Map combo text to format string

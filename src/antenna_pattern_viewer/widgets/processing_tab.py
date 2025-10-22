@@ -205,7 +205,7 @@ class ProcessingTab(QWidget):
         self.polarization_combo.blockSignals(False)
 
         # coordinate format control
-        from ..plotting import detect_coordinate_format
+        from farfield_spherical import detect_coordinate_format
         current_format = detect_coordinate_format(pattern)
         format_idx = 0 if current_format == 'central' else 1
         self.coord_format_combo.blockSignals(True)

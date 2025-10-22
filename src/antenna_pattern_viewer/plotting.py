@@ -1354,38 +1354,3 @@ def plot_pattern_2d_polar(
     plt.tight_layout()
     
     return fig, cbar
-
-def detect_coordinate_format(pattern: FarFieldSpherical) -> str:
-    """
-    Detect whether pattern data is in 'central' or 'sided' coordinate format.
-    
-    Args:
-        pattern: FarFieldSpherical object
-        
-    Returns:
-        str: 'central', 'sided', or 'unknown'
-    """
-    theta_angles = pattern.theta_angles
-    phi_angles = pattern.phi_angles
-    
-    theta_min, theta_max = np.min(theta_angles), np.max(theta_angles)
-    phi_min, phi_max = np.min(phi_angles), np.max(phi_angles)
-    
-    # Check for sided format: theta 0:180, phi 0:360
-    is_sided = (theta_min >= -5 and theta_max <= 185 and 
-                phi_min >= -5 and phi_max >= 355)
-    
-    # Check for central format: theta around ±180, phi 0:180
-    is_central = (theta_min < -5 and theta_max > 175 and
-                  phi_min >= -5 and phi_max <= 185)
-    
-    # Alternative central: theta 0:180, phi limited range
-    is_central_alt = (theta_min >= -5 and theta_max <= 185 and
-                      phi_min >= -5 and phi_max <= 185)
-    
-    if is_sided:
-        return 'sided'
-    elif is_central or is_central_alt:
-        return 'central'
-    else:
-        return 'unknown'

@@ -114,7 +114,7 @@ class ViewTab(QWidget):
         
         # Unwrap phase checkbox
         self.unwrap_phase = QCheckBox("Unwrap Phase")
-        self.unwrap_phase.setChecked(True)
+        self.unwrap_phase.setChecked(False)
         self.unwrap_phase.toggled.connect(self.parameters_changed.emit)
         plot_group.addWidget(self.unwrap_phase)
 
@@ -183,22 +183,22 @@ class ViewTab(QWidget):
         freq_group.toggle_collapsed()
         plot_group.toggle_collapsed()
 
-    def get_current_parameters(self) -> dict:
+    def get_current_parameters(self):
         """Get current view parameters as a dictionary."""
-        return {
-            'selected_frequencies': [
-                float(item.text().split()[0]) * 1e6  # Convert MHz to Hz
-                for item in self.frequency_list.selectedItems()
-            ],
-            'selected_phi': [
-                float(item.text().replace('°', ''))
-                for item in self.phi_list.selectedItems()
-            ],
-            'plot_type': self.plot_type_combo.currentText() if hasattr(self, 'plot_type_combo') else '1d_cut',
-            'component': self.component_combo.currentText() if hasattr(self, 'component_combo') else 'e_co',
-            'value_type': self.value_type_combo.currentText() if hasattr(self, 'value_type_combo') else 'gain',
+        params = {
+            'selected_frequencies': self.get_selected_frequencies(),
+            'selected_phi': self.get_selected_phi_angles(),
+            'plot_type': self.get_plot_format(),
+            'component': self.get_component(),
+            'value_type': self.get_value_type(),
+            'show_cross_pol': self.get_show_cross_pol(),
             'unwrap_phase': self.unwrap_phase.isChecked(),
+            'statistics_enabled': self.get_statistics_enabled(),
+            'show_range': self.get_show_range(),
+            'statistic_type': self.get_statistic_type(),
+            'percentile_range': self.get_percentile_range()
         }
+        return params
     
     def update_pattern(self, pattern):
         """Update controls with new pattern."""
@@ -312,19 +312,3 @@ class ViewTab(QWidget):
     def get_percentile_range(self):
         """Get percentile range."""
         return (self.percentile_lower_spin.value(), self.percentile_upper_spin.value())
-    
-    def get_current_parameters(self):
-        """Get current view parameters as a dictionary."""
-        params = {
-            'selected_frequencies': self.get_selected_frequencies(),
-            'selected_phi': self.get_selected_phi_angles(),
-            'plot_type': self.get_plot_format(),
-            'component': self.get_component(),
-            'value_type': self.get_value_type(),
-            'show_cross_pol': self.get_show_cross_pol(),
-            'statistics_enabled': self.get_statistics_enabled(),
-            'show_range': self.get_show_range(),
-            'statistic_type': self.get_statistic_type(),
-            'percentile_range': self.get_percentile_range()
-        }
-        return params
