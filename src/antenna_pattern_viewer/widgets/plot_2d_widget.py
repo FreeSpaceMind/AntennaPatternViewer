@@ -87,6 +87,7 @@ class Plot2DWidget(QWidget):
         component = params.get('component', 'e_co')
         value_type = params.get('value_type', 'gain')
         show_cross_pol = params.get('show_cross_pol', False)
+        unwrap_phase = params.get('unwrap_phase', True)
         statistics_enabled = params.get('statistics_enabled', False)
         show_range = params.get('show_range', True)
         statistic_type = params.get('statistic_type', 'mean')
@@ -100,6 +101,7 @@ class Plot2DWidget(QWidget):
                 phi_angles=phi_angles,
                 value_type=value_type,
                 show_cross_pol=show_cross_pol,
+                unwrap_phase=unwrap_phase,
                 plot_format=plot_type,
                 component=component,
                 statistics_enabled=statistics_enabled,

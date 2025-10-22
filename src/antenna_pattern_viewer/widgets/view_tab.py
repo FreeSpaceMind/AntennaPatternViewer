@@ -112,6 +112,12 @@ class ViewTab(QWidget):
         self.show_cross_pol.toggled.connect(self.parameters_changed.emit)
         plot_group.addWidget(self.show_cross_pol)
         
+        # Unwrap phase checkbox
+        self.unwrap_phase = QCheckBox("Unwrap Phase")
+        self.unwrap_phase.setChecked(True)
+        self.unwrap_phase.toggled.connect(self.parameters_changed.emit)
+        plot_group.addWidget(self.unwrap_phase)
+
         layout.addWidget(plot_group)
         
         # Statistics (collapsible)
@@ -191,6 +197,7 @@ class ViewTab(QWidget):
             'plot_type': self.plot_type_combo.currentText() if hasattr(self, 'plot_type_combo') else '1d_cut',
             'component': self.component_combo.currentText() if hasattr(self, 'component_combo') else 'e_co',
             'value_type': self.value_type_combo.currentText() if hasattr(self, 'value_type_combo') else 'gain',
+            'unwrap_phase': self.unwrap_phase.isChecked(),
         }
     
     def update_pattern(self, pattern):

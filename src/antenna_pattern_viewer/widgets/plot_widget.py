@@ -155,7 +155,7 @@ class PlotWidget(QWidget):
 
     
     def update_plot(self, pattern, frequencies, phi_angles, value_type, 
-                    show_cross_pol, plot_format, component, 
+                    show_cross_pol, unwrap_phase, plot_format, component, 
                     statistics_enabled=False, show_range=True, 
                     statistic_type='mean', percentile_range=(25, 75)
     ):
@@ -184,6 +184,7 @@ class PlotWidget(QWidget):
         self.current_phi_angles = phi_angles
         self.current_value_type = value_type
         self.current_show_cross_pol = show_cross_pol
+        self.current_unwrap_phase = unwrap_phase
         self.current_plot_format = plot_format
         self.current_component = component
         self.current_statistics_enabled = statistics_enabled
@@ -234,7 +235,8 @@ class PlotWidget(QWidget):
                     frequency=frequencies,
                     component=component,
                     value_type=value_type,
-                    ax=self.ax
+                    ax=self.ax,
+                    unwrap_phase=unwrap_phase,
                 )
             
             # 1D cut plot (default)
@@ -246,7 +248,8 @@ class PlotWidget(QWidget):
                     show_cross_pol=show_cross_pol,
                     value_type=value_type,
                     component=component,
-                    ax=self.ax
+                    ax=self.ax,
+                    unwrap_phase=unwrap_phase,
                 )
             
             # Apply formatting
@@ -466,6 +469,7 @@ class PlotWidget(QWidget):
                 phi_angles=self.current_phi_angles,
                 value_type=self.current_value_type,
                 show_cross_pol=self.current_show_cross_pol,
+                unwrap_phase=self.current_unwrap_phase,
                 plot_format=self.current_plot_format,
                 component=self.current_component,
                 statistics_enabled=self.current_statistics_enabled,
