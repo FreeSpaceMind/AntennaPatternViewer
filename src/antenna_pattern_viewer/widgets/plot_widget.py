@@ -192,9 +192,16 @@ class PlotWidget(QWidget):
         self.current_statistic_type = statistic_type
         self.current_percentile_range = percentile_range
         
+        # Update control labels and visibility based on plot format
+        self.update_controls_for_plot_format()
+
         # Clear the current figure
         self.figure.clear()
-        self.ax = self.figure.add_subplot(111)
+        # Create axes with polar projection if needed for 2D polar plots
+        if plot_format == "2d_polar":
+            self.ax = self.figure.add_subplot(111, projection='polar')
+        else:
+            self.ax = self.figure.add_subplot(111)
         
         try:
             # Statistics plot
@@ -230,14 +237,19 @@ class PlotWidget(QWidget):
             
             # 2D polar plot
             elif plot_format == "2d_polar":
-                plot_pattern_2d_polar(
+                vmin, vmax = self.get_colorbar_limits()
+                fig, cbar = plot_pattern_2d_polar(
                     pattern=pattern,
                     frequency=frequencies,
                     component=component,
                     value_type=value_type,
                     ax=self.ax,
                     unwrap_phase=unwrap_phase,
+                    vmin=vmin,
+                    vmax=vmax,
                 )
+                # Store colorbar reference for formatting updates
+                self.current_colorbar = cbar
             
             # 1D cut plot (default)
             else:
@@ -550,21 +562,56 @@ class PlotWidget(QWidget):
             
         ax = self.figure.axes[0]
         
+        # Check if this is a polar plot
+        is_polar = hasattr(ax, 'set_theta_zero_location')
+        
         # Apply grid
         ax.grid(self.grid_check.isChecked())
         
-        # Apply axis limits
-        try:
-            x_min = self.x_phi_min_edit.text()
-            x_max = self.x_phi_max_edit.text()
-            if x_min and x_max:
-                ax.set_xlim(float(x_min), float(x_max))
+        if is_polar:
+            # Handle polar plot formatting
             
-            y_min = self.y_theta_min_edit.text()
-            y_max = self.y_theta_max_edit.text()
-            if y_min and y_max:
-                ax.set_ylim(float(y_min), float(y_max))
-        except ValueError:
-            pass  # Invalid input, ignore
+            # Update colorbar limits
+            if hasattr(self, 'current_colorbar') and self.current_colorbar:
+                self.current_colorbar.ax.set_visible(self.legend_colorbar_check.isChecked())
+                
+                # Apply Z-axis limits to colorbar
+                vmin, vmax = self.get_colorbar_limits()
+                if vmin is not None or vmax is not None:
+                    mappable = self.current_colorbar.mappable
+                    current_vmin, current_vmax = mappable.get_clim()
+                    new_vmin = vmin if vmin is not None else current_vmin
+                    new_vmax = vmax if vmax is not None else current_vmax
+                    mappable.set_clim(vmin=new_vmin, vmax=new_vmax)
+                    self.current_colorbar.update_normal(mappable)
+            
+            # Theta (radial) limits
+            try:
+                theta_min = self.y_theta_min_edit.text()
+                theta_max = self.y_theta_max_edit.text()
+                if theta_min and theta_max:
+                    ax.set_ylim(float(theta_min), float(theta_max))
+            except ValueError:
+                pass
+        else:
+            # Handle 1D plot formatting
+            
+            # Legend visibility
+            if ax.get_legend():
+                ax.get_legend().set_visible(self.legend_colorbar_check.isChecked())
+            
+            # X and Y axis limits
+            try:
+                x_min = self.x_phi_min_edit.text()
+                x_max = self.x_phi_max_edit.text()
+                if x_min and x_max:
+                    ax.set_xlim(float(x_min), float(x_max))
+                
+                y_min = self.y_theta_min_edit.text()
+                y_max = self.y_theta_max_edit.text()
+                if y_min and y_max:
+                    ax.set_ylim(float(y_min), float(y_max))
+            except ValueError:
+                pass
         
         self.canvas.draw()

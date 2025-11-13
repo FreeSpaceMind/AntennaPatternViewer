@@ -12,8 +12,10 @@ __email__ = 'justinwlong1@gmail.com'
 
 from .antenna_pattern_widget import AntennaPatternWidget
 from .data_model import PatternDataModel
+from .plotting import plot_pattern_cut
 
 __all__ = [
     'AntennaPatternWidget',
-    'PatternDataModel'
+    'PatternDataModel',
+    'plot_pattern_cut'
 ]
