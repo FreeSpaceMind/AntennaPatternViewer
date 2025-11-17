@@ -3,10 +3,7 @@ Shared data model for antenna pattern viewer GUI.
 """
 from PyQt6.QtCore import QObject, pyqtSignal
 from typing import Optional, Dict, Any, List, Set
-import logging
 from antenna_pattern_viewer.pattern_instance import PatternInstance
-
-logger = logging.getLogger(__name__)
 
 
 class PatternDataModel(QObject):
@@ -93,7 +90,6 @@ class PatternDataModel(QObject):
             self._view_params['selected_phi'] = []
             self._view_params['selected_theta'] = []
         
-        logger.info(f"Pattern loaded: {file_path if file_path else 'from memory'}")
         self.pattern_loaded.emit(pattern)
 
     def apply_processing(self):
@@ -123,7 +119,6 @@ class PatternDataModel(QObject):
         
         # Update current pattern
         self._pattern = processed
-        logger.info("Processing applied to pattern")
         self.pattern_modified.emit(processed)
     
     def set_phase_center_translation(self, translation: Optional[list]):
@@ -167,7 +162,6 @@ class PatternDataModel(QObject):
             pattern: Modified FarFieldSpherical object
         """
         self._pattern = pattern
-        logger.info("Pattern modified")
         self.pattern_modified.emit(pattern)
     
     @property
@@ -196,7 +190,6 @@ class PatternDataModel(QObject):
             value: Parameter value
         """
         self._view_params[key] = value
-        logger.debug(f"View parameter updated: {key} = {value}")
         self.view_parameters_changed.emit(self._view_params)
     
     def update_view_params(self, params: Dict[str, Any]):
@@ -207,7 +200,6 @@ class PatternDataModel(QObject):
             params: Dictionary of parameter updates
         """
         self._view_params.update(params)
-        logger.debug(f"View parameters updated: {list(params.keys())}")
         self.view_parameters_changed.emit(self._view_params)
     
     def get_all_view_params(self) -> Dict[str, Any]:
@@ -222,7 +214,6 @@ class PatternDataModel(QObject):
     def add_instance(self, instance: PatternInstance):
         """Add a new pattern instance."""
         self._instances[instance.instance_id] = instance
-        logger.info(f"Added pattern instance: {instance.display_name}")
         self.instances_changed.emit()
         
         # Set as active if it's the first instance
@@ -250,7 +241,6 @@ class PatternDataModel(QObject):
                     self.pattern_loaded.emit(None)
             
             del self._instances[instance_id]
-            logger.info(f"Removed pattern instance: {instance.display_name}")
             self.instances_changed.emit()
     
     def get_instance(self, instance_id: str) -> Optional[PatternInstance]:
@@ -263,9 +253,6 @@ class PatternDataModel(QObject):
     
     def set_active_instance(self, instance_id: str):
         """Set the active pattern instance."""
-        if instance_id not in self._instances:
-            logger.warning(f"Cannot set active instance - ID not found: {instance_id}")
-            return
         
         # Save current view params to old active instance
         if self._active_instance_id:
@@ -286,7 +273,6 @@ class PatternDataModel(QObject):
         file_path = str(instance.source_file) if instance.source_file else None
         self.set_pattern(instance.pattern, file_path=file_path)
         
-        logger.info(f"Set active instance: {instance.display_name}")
         self.active_instance_changed.emit(instance)
         self.pattern_loaded.emit(instance.pattern)
     
@@ -300,20 +286,17 @@ class PatternDataModel(QObject):
         """Rename a pattern instance."""
         if instance_id in self._instances:
             self._instances[instance_id].display_name = new_name
-            logger.info(f"Renamed instance {instance_id} to: {new_name}")
             self.instances_changed.emit()
     
     def add_to_comparison(self, instance_id: str):
         """Add an instance to the comparison set."""
         if instance_id in self._instances:
             self._comparison_instance_ids.add(instance_id)
-            logger.info(f"Added to comparison: {self._instances[instance_id].display_name}")
             self.comparison_set_changed.emit(list(self._comparison_instance_ids))
     
     def remove_from_comparison(self, instance_id: str):
         """Remove an instance from the comparison set."""
         self._comparison_instance_ids.discard(instance_id)
-        logger.info(f"Removed from comparison: {instance_id}")
         self.comparison_set_changed.emit(list(self._comparison_instance_ids))
     
     def get_comparison_instances(self) -> List[PatternInstance]:
@@ -329,5 +312,4 @@ class PatternDataModel(QObject):
             params: Dictionary of view parameters to update
         """
         self._view_params.update(params)
-        logger.debug(f"View parameters updated: {list(params.keys())}")
         self.view_parameters_changed.emit(self._view_params)

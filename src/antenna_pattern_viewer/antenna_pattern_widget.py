@@ -1,12 +1,11 @@
 """
 Top-level embeddable antenna pattern widget with dockable interface.
 """
-from PyQt6.QtWidgets import (QMainWindow, QDockWidget, QStatusBar)
+from PyQt6.QtWidgets import (
+    QMainWindow, QDockWidget, QStatusBar
+    )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
 from pathlib import Path
-import logging
-
-from farfield_spherical import FarFieldSpherical
 
 from antenna_pattern_viewer.data_model import PatternDataModel
 from antenna_pattern_viewer.widgets.control_panel_widget import ControlPanelWidget
@@ -15,8 +14,7 @@ from antenna_pattern_viewer.widgets.plot_3d_widget import Plot3DWidget
 from antenna_pattern_viewer.widgets.data_display_widget import DataDisplayWidget
 from antenna_pattern_viewer.widgets.file_manager_widget import FileManagerWidget
 from antenna_pattern_viewer.widgets.plot_nearfield_widget import PlotNearFieldWidget
-
-logger = logging.getLogger(__name__)
+from antenna_pattern_viewer.widgets.export_widget import ExportWidget
 
 
 class AntennaPatternWidget(QMainWindow):
@@ -51,11 +49,6 @@ class AntennaPatternWidget(QMainWindow):
         settings = QSettings("AntPy", "AntennaPatternViewer")
         settings.clear()
         
-        # Load saved window state if available
-        # self.load_settings()  # Comment this out temporarily
-        
-        logger.info("AntennaPatternWidget initialized")
-    
     def setup_docks(self):
         """Create and arrange dock widgets in a two-column layout with tabbed center."""
         
@@ -89,6 +82,12 @@ class AntennaPatternWidget(QMainWindow):
         self.data_dock.setObjectName("DataDock")
         self.data_display = DataDisplayWidget(self.data_model)
         self.data_dock.setWidget(self.data_display)
+
+        self.export_dock = QDockWidget("Export", self)
+        self.export_dock.setObjectName("ExportDock")
+        self.export_widget = ExportWidget(self.data_model)
+        self.export_dock.setWidget(self.export_widget)
+
         
         # Build layout: LEFT COLUMN | TABBED CENTER
         
@@ -96,6 +95,8 @@ class AntennaPatternWidget(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.file_manager_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.control_dock)
         self.splitDockWidget(self.file_manager_dock, self.control_dock, Qt.Orientation.Vertical)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.export_dock)
+        self.splitDockWidget(self.control_dock, self.export_dock, Qt.Orientation.Vertical)
         
         # Center: Tabbed plots and data display
         # Add first dock to the right
@@ -146,108 +147,10 @@ class AntennaPatternWidget(QMainWindow):
 
         # Connect near field calculation signal to plot widget
         self.control_panel.nearfield_calculated.connect(self.on_nearfield_calculated)
-    
-    def open_pattern(self):
-        """Open a pattern file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open Pattern File",
-            "",
-            "Pattern Files (*.cut *.ffd *.npz *.sph);;All Files (*.*)"
+
+        self.export_widget.export_completed.connect(
+            lambda path: self.status_message.emit(f"Exported: {Path(path).name}")
         )
-        
-        if not file_path:
-            return
-        
-        try:
-            file_path = Path(file_path)
-            suffix = file_path.suffix.lower()
-            
-            if suffix == '.cut':
-                pattern = read_cut(str(file_path))
-            elif suffix == '.ffd':
-                pattern = read_ffd(str(file_path))
-            elif suffix == '.npz':
-                pattern, _ = load_pattern_npz(str(file_path))
-            elif suffix == '.sph':
-                # Need frequency dialog
-                freq, ok = QInputDialog.getDouble(
-                    self,
-                    "Enter Frequency",
-                    "Frequency (GHz):",
-                    value=10.0,
-                    min=0.1,
-                    max=1000.0,
-                    decimals=3
-                )
-                if not ok:
-                    return
-                freq_hz = freq * 1e9
-                pattern = FarFieldSpherical.from_ticra_sph(str(file_path), freq_hz)
-            else:
-                raise ValueError(f"Unsupported file format: {suffix}")
-            
-            self.data_model.set_pattern(pattern, str(file_path))
-            self.status_message.emit(f"Loaded: {file_path.name}")
-            
-        except Exception as e:
-            logger.error(f"Failed to load pattern: {e}", exc_info=True)
-            QMessageBox.critical(
-                self, 
-                "Error", 
-                f"Failed to load pattern:\n{str(e)}"
-            )
-    
-    def save_pattern(self):
-        """Save current pattern."""
-        if self.data_model.pattern is None:
-            QMessageBox.warning(self, "Warning", "No pattern to save")
-            return
-        
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Pattern File",
-            "",
-            "NPZ Files (*.npz);;CUT Files (*.cut);;FFD Files (*.ffd)"
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            file_path = Path(file_path)
-            suffix = file_path.suffix.lower()
-            
-            if suffix == '.npz':
-                save_pattern_npz(self.data_model.pattern, str(file_path))
-            elif suffix == '.cut':
-                self.data_model.pattern.write_cut(str(file_path))
-            elif suffix == '.ffd':
-                self.data_model.pattern.write_ffd(str(file_path))
-            else:
-                raise ValueError(f"Unsupported file format: {suffix}")
-            
-            self.status_message.emit(f"Saved: {file_path.name}")
-            
-        except Exception as e:
-            logger.error(f"Failed to save pattern: {e}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to save pattern:\n{str(e)}"
-            )
-    
-    def export_plot(self):
-        """Export current plot to image file."""
-        # Delegate to the active plot widget
-        if self.plot_2d_dock.isVisible():
-            self.plot_2d.export_plot()
-        else:
-            QMessageBox.information(
-                self,
-                "Export Plot",
-                "No plot visible to export"
-            )
     
     def reset_layout(self):
         """Reset dock layout to default."""
@@ -283,20 +186,17 @@ class AntennaPatternWidget(QMainWindow):
             
             msg = f"Pattern loaded: {n_freq} freq, {n_theta}×{n_phi} points, {pol} pol"
             self.status_message.emit(msg)
-            logger.info(msg)
 
     def on_nearfield_calculated(self, near_field_data):
         """Handle near field calculation completion."""
         self.plot_nearfield.plot_near_field(near_field_data)
         self.plot_nearfield_dock.raise_()
-        logger.info("Near field calculation displayed")
     
     def save_settings(self):
         """Save window geometry and dock states."""
         settings = QSettings("AntennaPatternViewer", "MainWindow")
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("windowState", self.saveState())
-        logger.debug("Settings saved")
     
     def load_settings(self):
         """Load window geometry and dock states."""
@@ -307,7 +207,6 @@ class AntennaPatternWidget(QMainWindow):
         window_state = settings.value("windowState")
         if window_state:
             self.restoreState(window_state)
-        logger.debug("Settings loaded")
     
     def closeEvent(self, event):
         """Handle window close event."""
@@ -323,5 +222,3 @@ class AntennaPatternWidget(QMainWindow):
         
         # Reapply default layout
         self.setup_docks()
-        
-        logger.info("Layout reset to default")

@@ -321,28 +321,45 @@ class AnalysisTab(QWidget):
         if not hasattr(self.current_pattern, 'swe') or not self.current_pattern.swe:
             return
         
-        # Single frequency - display detailed info
-        swe = self.current_pattern.swe
-        freq = swe.frequency
+        num_frequencies = len(self.current_pattern.swe)
         
-        result_text = "SWE Coefficients (loaded from file):\n"
-        result_text += f"Frequency: {swe.frequency/1e9:.3f} GHz\n"
-        
-        # Calculate wavelength
-        wavelength = 299792458.0 / swe.frequency if swe.frequency else 0
-        if hasattr(swe, 'radius'):
-            result_text += f"Radius: {swe.radius:.4f} m ({swe.radius/wavelength:.2f} λ)\n"
-        
-        result_text += f"Mode indices: MMAX={swe.MMAX}, NMAX={swe.NMAX}\n"
-        
-        # Calculate total modes
-        total_modes = len(swe.Q1_coeffs) + len(swe.Q2_coeffs)
-        result_text += f"Total coefficients: {total_modes}\n"
-        
-        # Calculate total power if possible
-        total_power = sum(abs(q)**2 for q in swe.Q1_coeffs.values())
-        total_power += sum(abs(q)**2 for q in swe.Q2_coeffs.values())
-        result_text += f"Total power: {total_power:.6e} W\n"
+        if num_frequencies == 1:
+            # Single frequency - display detailed info
+            freq = list(self.current_pattern.swe.keys())[0]
+            swe = self.current_pattern.swe[freq]
+            
+            result_text = "SWE Coefficients (loaded from file):\n"
+            result_text += f"Frequency: {swe.frequency/1e9:.3f} GHz\n"
+            
+            # Calculate wavelength
+            wavelength = 299792458.0 / swe.frequency if swe.frequency else 0
+            if hasattr(swe, 'radius'):
+                result_text += f"Radius: {swe.radius:.4f} m ({swe.radius/wavelength:.2f} λ)\n"
+            
+            result_text += f"Mode indices: MMAX={swe.MMAX}, NMAX={swe.NMAX}\n"
+            
+            # Calculate total modes
+            total_modes = len(swe.Q1_coeffs) + len(swe.Q2_coeffs)
+            result_text += f"Total coefficients: {total_modes}\n"
+            
+            # Calculate total power if possible
+            total_power = sum(abs(q)**2 for q in swe.Q1_coeffs.values())
+            total_power += sum(abs(q)**2 for q in swe.Q2_coeffs.values())
+            result_text += f"Total power: {total_power:.6e} W\n"
+            
+        else:
+            # Multiple frequencies - display summary
+            result_text = f"SWE Coefficients (loaded from file):\n"
+            result_text += f"{num_frequencies} frequencies with SWE data:\n\n"
+            
+            for freq, swe in self.current_pattern.swe.items():
+                result_text += f"  • {swe.frequency/1e9:.3f} GHz: "
+                result_text += f"MMAX={swe.MMAX}, NMAX={swe.NMAX}"
+                
+                if hasattr(swe, 'radius'):
+                    wavelength = 299792458.0 / swe.frequency
+                    result_text += f", R={swe.radius:.4f} m ({swe.radius/wavelength:.2f} λ)"
+                result_text += "\n"
         
         self.swe_results.setText(result_text)
 

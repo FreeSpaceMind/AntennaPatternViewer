@@ -350,7 +350,6 @@ def plot_multiple_patterns(
             freq_idx = 0
         else:
             # Find nearest frequency
-            from .utilities import find_nearest
             freq_value, freq_idx = find_nearest(pattern.frequencies, freq)
         
         # Select phi angles
@@ -393,7 +392,6 @@ def plot_multiple_patterns(
         for phi_idx, phi_val in enumerate(phi_angles_to_plot):
             if phi_val not in pattern.phi_angles:
                 # Find nearest phi angle
-                from .utilities import find_nearest
                 phi_val, phi_idx_actual = find_nearest(pattern.phi_angles, phi_val)
             else:
                 phi_idx_actual = np.where(pattern.phi_angles == phi_val)[0][0]
@@ -523,7 +521,6 @@ def plot_pattern_difference(
         selected_freq2 = pattern2.frequencies[freq2_idx]
     else:
         # Find nearest frequency in each pattern
-        from .utilities import find_nearest
         selected_freq1, freq1_idx = find_nearest(pattern1.frequencies, frequency)
         selected_freq2, freq2_idx = find_nearest(pattern2.frequencies, frequency)
     
@@ -540,7 +537,6 @@ def plot_pattern_difference(
         selected_phi = common_phis
     elif np.isscalar(phi):
         # Find nearest phi in each pattern
-        from .utilities import find_nearest
         phi1_val, phi1_idx = find_nearest(pattern1.phi_angles, phi)
         phi2_val, phi2_idx = find_nearest(pattern2.phi_angles, phi)
         selected_phi = [phi1_val]  # Use phi from pattern1 for display
@@ -548,7 +544,6 @@ def plot_pattern_difference(
         phi2_indices = [phi2_idx]
     else:
         # Multiple specific phi angles
-        from .utilities import find_nearest
         phi1_indices = []
         phi2_indices = []
         selected_phi = []

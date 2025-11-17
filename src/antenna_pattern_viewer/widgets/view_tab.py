@@ -3,12 +3,11 @@ View tab - Controls for visualizing pattern data.
 """
 
 import numpy as np
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                             QListWidget, QComboBox, QCheckBox, QLabel,
                             QAbstractItemView, QPushButton, QDoubleSpinBox,
                             QScrollArea)
 from PyQt6.QtCore import pyqtSignal, Qt
-from farfield_spherical import FarFieldSpherical
 
 from .collapsible_group import CollapsibleGroupBox
 

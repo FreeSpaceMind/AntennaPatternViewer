@@ -3,9 +3,6 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 import numpy as np
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class PlotNearFieldWidget(QWidget):
@@ -33,8 +30,6 @@ class PlotNearFieldWidget(QWidget):
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
         self.setLayout(layout)
-        
-        logger.debug("PlotNearFieldWidget initialized")
     
     def plot_near_field(self, near_field_data):
         """Store near field data and plot."""
@@ -132,8 +127,6 @@ class PlotNearFieldWidget(QWidget):
         
         # Convert to dB
         magnitude_db = 20 * np.log10(field_data + 1e-10)
-        
-        logger.info(f"Plotting {component}: range {np.min(magnitude_db):.2f} to {np.max(magnitude_db):.2f} dB")
         
         im = ax.imshow(magnitude_db, 
                       extent=[np.min(x), np.max(x), np.min(y), np.max(y)],

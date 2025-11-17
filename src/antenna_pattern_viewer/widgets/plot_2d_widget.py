@@ -3,12 +3,8 @@
 """
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFileDialog, QMessageBox
 from PyQt6.QtCore import pyqtSignal
-import logging
 
 from antenna_pattern_viewer.widgets.plot_widget import PlotWidget
-
-logger = logging.getLogger(__name__)
-
 
 class Plot2DWidget(QWidget):
     """Widget for 2D pattern visualization."""
@@ -21,8 +17,6 @@ class Plot2DWidget(QWidget):
         self.data_model = data_model
         self.setup_ui()
         self.connect_signals()
-        
-        logger.debug("Plot2DWidget initialized")
     
     def setup_ui(self):
         """Setup 2D plot UI."""
@@ -46,13 +40,10 @@ class Plot2DWidget(QWidget):
         if pattern is None:
             self.plot_widget.clear_plot()
             self.plot_updated.emit()
-            logger.debug("Plot cleared - no pattern")
             return
         
         # Trigger plot update with current view parameters
         self.update_plot_from_model()
-        
-        logger.debug("Pattern updated in plot widget")
     
     def on_view_params_changed(self, params):
         """Update plot when view parameters change."""
@@ -61,8 +52,6 @@ class Plot2DWidget(QWidget):
         
         # Trigger plot update
         self.update_plot_from_model()
-        
-        logger.debug("Plot updated from view parameters")
     
     def update_plot_from_model(self):
         """Update the plot using current pattern and view parameters."""
@@ -111,7 +100,7 @@ class Plot2DWidget(QWidget):
             )
             self.plot_updated.emit()
         except Exception as e:
-            logger.error(f"Failed to update plot: {e}")
+            print(f"Failed to update plot: {e}")
     
     def export_plot(self):
         """Export current plot to image file."""
@@ -133,9 +122,7 @@ class Plot2DWidget(QWidget):
         if file_path:
             try:
                 self.plot_widget.figure.savefig(file_path, dpi=300, bbox_inches='tight')
-                logger.info(f"Plot exported to: {file_path}")
             except Exception as e:
-                logger.error(f"Failed to export plot: {e}")
                 QMessageBox.critical(
                     self,
                     "Export Error",

@@ -3,9 +3,6 @@
 """
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PyQt6.QtCore import Qt
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class Plot3DWidget(QWidget):
@@ -16,8 +13,6 @@ class Plot3DWidget(QWidget):
         self.data_model = data_model
         self.setup_ui()
         self.connect_signals()
-        
-        logger.debug("Plot3DWidget initialized")
     
     def setup_ui(self):
         """Setup 3D plot UI."""
@@ -43,4 +38,4 @@ class Plot3DWidget(QWidget):
     def on_pattern_changed(self, pattern):
         """Update plot when pattern changes."""
         # TODO: Implement 3D plotting
-        logger.debug("3D plot update requested (not yet implemented)")
+        pass

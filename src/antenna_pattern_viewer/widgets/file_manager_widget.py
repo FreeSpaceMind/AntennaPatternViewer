@@ -11,14 +11,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QDir
 from PyQt6.QtGui import QIcon, QColor, QFileSystemModel
 from pathlib import Path
-import logging
 import time
 
 from farfield_spherical import read_cut, read_ffd, load_pattern_npz
 from ..pattern_instance import PatternInstance
-
-logger = logging.getLogger(__name__)
-
 
 class CutFileDialog(QDialog):
     """Dialog for getting frequency information for .cut files."""
@@ -81,8 +77,6 @@ class FileManagerWidget(QWidget):
         self.data_model = data_model
         self.setup_ui()
         self.connect_signals()
-        
-        logger.debug("FileManagerWidget initialized")
     
     def setup_ui(self):
         """Setup the file manager UI."""
@@ -292,10 +286,7 @@ class FileManagerWidget(QWidget):
             # Add to model
             self.data_model.add_instance(instance)
             
-            logger.info(f"Loaded pattern: {file_path.name}")
-            
         except Exception as e:
-            logger.error(f"Failed to load {file_path.name}: {e}")
             QMessageBox.critical(
                 self,
                 "Load Error",

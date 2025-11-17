@@ -4,10 +4,6 @@ Data display widget showing numerical information and statistics.
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                               QTableWidget, QGroupBox)
 from PyQt6.QtCore import Qt
-import logging
-
-logger = logging.getLogger(__name__)
-
 
 class DataDisplayWidget(QWidget):
     """Widget for displaying numerical data and statistics."""
@@ -17,8 +13,6 @@ class DataDisplayWidget(QWidget):
         self.data_model = data_model
         self.setup_ui()
         self.connect_signals()
-        
-        logger.debug("DataDisplayWidget initialized")
     
     def setup_ui(self):
         """Setup data display UI."""
@@ -76,5 +70,3 @@ class DataDisplayWidget(QWidget):
         )
         
         self.info_label.setText(info_text)
-        
-        logger.debug("Data display updated with pattern info")
