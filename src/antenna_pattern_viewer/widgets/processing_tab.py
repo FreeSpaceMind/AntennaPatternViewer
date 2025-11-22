@@ -18,6 +18,9 @@ class ProcessingTab(QWidget):
     apply_mars_signal = pyqtSignal(float)  # max_radial_extent
     polarization_changed = pyqtSignal(str)  # NEW: Add str argument for polarization
     coordinate_format_changed = pyqtSignal(str)  # 'central' or 'sided'
+    shift_theta_origin_signal = pyqtSignal(float)  # theta_offset in degrees
+    shift_phi_origin_signal = pyqtSignal(float)  # phi_offset in degrees
+    normalize_amplitude_signal = pyqtSignal(str)  # normalization type
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -66,6 +69,28 @@ class ProcessingTab(QWidget):
         coord_group.addWidget(desc_label)
 
         layout.addWidget(coord_group)
+
+        # Amplitude Normalization section
+        norm_group = CollapsibleGroupBox("Amplitude Normalization")
+
+        norm_layout = QHBoxLayout()
+        norm_layout.addWidget(QLabel("Reference:"))
+        self.normalization_combo = QComboBox()
+        self.normalization_combo.addItems(["Peak", "Boresight", "Mean"])
+        self.normalization_combo.setToolTip(
+            "Peak: Normalize to maximum gain\n"
+            "Boresight: Normalize to boresight gain\n"
+            "Mean: Normalize to mean gain"
+        )
+        norm_layout.addWidget(self.normalization_combo)
+        norm_group.addLayout(norm_layout)
+
+        # Apply normalization checkbox
+        self.apply_normalization_check = QCheckBox("Apply Amplitude Normalization")
+        self.apply_normalization_check.toggled.connect(self.on_apply_normalization_toggled)
+        norm_group.addWidget(self.apply_normalization_check)
+
+        layout.addWidget(norm_group)
         
         # Phase center section (collapsible)
         pc_group = CollapsibleGroupBox("Phase Center")
@@ -155,6 +180,43 @@ class ProcessingTab(QWidget):
         mars_group.addWidget(self.apply_mars_check)
         
         layout.addWidget(mars_group)
+
+        # Origin Shift section (collapsible)
+        origin_group = CollapsibleGroupBox("Origin Shift")
+
+        # Theta origin shift
+        theta_shift_layout = QHBoxLayout()
+        theta_shift_layout.addWidget(QLabel("Theta Offset:"))
+        self.theta_shift_spin = QDoubleSpinBox()
+        self.theta_shift_spin.setRange(-180.0, 180.0)
+        self.theta_shift_spin.setValue(0.0)
+        self.theta_shift_spin.setSuffix("°")
+        self.theta_shift_spin.setDecimals(1)
+        theta_shift_layout.addWidget(self.theta_shift_spin)
+        origin_group.addLayout(theta_shift_layout)
+
+        # Apply theta shift checkbox
+        self.apply_theta_shift_check = QCheckBox("Apply Theta Origin Shift")
+        self.apply_theta_shift_check.toggled.connect(self.on_apply_theta_shift_toggled)
+        origin_group.addWidget(self.apply_theta_shift_check)
+
+        # Phi origin shift
+        phi_shift_layout = QHBoxLayout()
+        phi_shift_layout.addWidget(QLabel("Phi Offset:"))
+        self.phi_shift_spin = QDoubleSpinBox()
+        self.phi_shift_spin.setRange(-180.0, 180.0)
+        self.phi_shift_spin.setValue(0.0)
+        self.phi_shift_spin.setSuffix("°")
+        self.phi_shift_spin.setDecimals(1)
+        phi_shift_layout.addWidget(self.phi_shift_spin)
+        origin_group.addLayout(phi_shift_layout)
+
+        # Apply phi shift checkbox
+        self.apply_phi_shift_check = QCheckBox("Apply Phi Origin Shift")
+        self.apply_phi_shift_check.toggled.connect(self.on_apply_phi_shift_toggled)
+        origin_group.addWidget(self.apply_phi_shift_check)
+
+        layout.addWidget(origin_group)
         
         # Add stretch
         layout.addStretch()
@@ -313,6 +375,9 @@ class ProcessingTab(QWidget):
         """Reset checkboxes when loading new pattern."""
         self.apply_phase_center_check.setChecked(False)
         self.apply_mars_check.setChecked(False)
+        self.apply_theta_shift_check.setChecked(False)
+        self.apply_phi_shift_check.setChecked(False)
+        self.apply_normalization_check.setChecked(False)
 
     def on_polarization_combo_changed(self, text):
         """Handle polarization combo box change."""
@@ -327,3 +392,30 @@ class ProcessingTab(QWidget):
         }
         new_pol = pol_map.get(text, "theta")
         self.polarization_changed.emit(new_pol)
+
+    def on_apply_theta_shift_toggled(self, checked):
+        """Handle apply theta shift checkbox toggle."""
+        if not self.current_pattern:
+            return
+        
+        theta_offset = self.theta_shift_spin.value()
+        self.shift_theta_origin_signal.emit(theta_offset)
+
+    def on_apply_phi_shift_toggled(self, checked):
+        """Handle apply phi shift checkbox toggle."""
+        if not self.current_pattern:
+            return
+        
+        phi_offset = self.phi_shift_spin.value()
+        self.shift_phi_origin_signal.emit(phi_offset)
+
+    def on_apply_normalization_toggled(self, checked):
+        """Handle apply normalization checkbox toggle."""
+        if not self.current_pattern:
+            return
+        
+        norm_type = self.normalization_combo.currentText().lower()
+        if checked:
+            self.normalize_amplitude_signal.emit(norm_type)
+        else:
+            self.normalize_amplitude_signal.emit("")  # Empty string to disable

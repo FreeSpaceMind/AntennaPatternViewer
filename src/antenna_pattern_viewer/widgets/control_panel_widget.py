@@ -9,6 +9,9 @@ from antenna_pattern_viewer.widgets.view_tab import ViewTab
 from antenna_pattern_viewer.widgets.processing_tab import ProcessingTab
 from antenna_pattern_viewer.widgets.analysis_tab import AnalysisTab
 
+import logging
+logger = logging.getLogger(__name__)
+
 class ControlPanelWidget(QWidget):
     """Control panel with tabbed interface for pattern controls."""
 
@@ -55,6 +58,9 @@ class ControlPanelWidget(QWidget):
         self.processing_tab.apply_mars_signal.connect(self.on_apply_mars)
         self.processing_tab.polarization_changed.connect(self.on_polarization_changed)
         self.processing_tab.coordinate_format_changed.connect(self.on_coordinate_format_changed)
+        self.processing_tab.shift_theta_origin_signal.connect(self.on_shift_theta_origin)
+        self.processing_tab.shift_phi_origin_signal.connect(self.on_shift_phi_origin)
+        self.processing_tab.normalize_amplitude_signal.connect(self.on_normalize_amplitude)
         
         # Connect analysis signals
         self.analysis_tab.calculate_swe_signal.connect(self.on_calculate_swe)
@@ -358,3 +364,72 @@ class ControlPanelWidget(QWidget):
             import traceback
             error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
             self.analysis_tab.nf_results.setText(error_msg)
+
+    def on_shift_theta_origin(self, theta_offset):
+        """Handle theta origin shift toggle."""
+        if self.data_model.original_pattern is None:
+            return
+        
+        try:
+            is_checked = self.processing_tab.apply_theta_shift_check.isChecked()
+            
+            if is_checked:
+                self.data_model.set_theta_origin_shift(theta_offset)
+                logger.info(f"Theta origin shift enabled: {theta_offset}°")
+            else:
+                self.data_model.set_theta_origin_shift(None)
+                logger.info("Theta origin shift disabled")
+            
+            self.processing_tab.update_pattern(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+            
+        except Exception as e:
+            logger.error(f"Failed to toggle theta origin shift: {e}", exc_info=True)
+
+    def on_shift_phi_origin(self, phi_offset):
+        """Handle phi origin shift toggle."""
+        if self.data_model.original_pattern is None:
+            return
+        
+        try:
+            is_checked = self.processing_tab.apply_phi_shift_check.isChecked()
+            
+            if is_checked:
+                self.data_model.set_phi_origin_shift(phi_offset)
+                logger.info(f"Phi origin shift enabled: {phi_offset}°")
+            else:
+                self.data_model.set_phi_origin_shift(None)
+                logger.info("Phi origin shift disabled")
+            
+            self.processing_tab.update_pattern(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+            
+        except Exception as e:
+            logger.error(f"Failed to toggle phi origin shift: {e}", exc_info=True)
+
+    def on_normalize_amplitude(self, norm_type):
+        """Handle amplitude normalization toggle."""
+        if self.data_model.original_pattern is None:
+            return
+        
+        try:
+            # Get checkbox state from processing tab
+            is_checked = self.processing_tab.apply_normalization_check.isChecked()
+            
+            if is_checked:
+                # Enable normalization
+                self.data_model.set_amplitude_normalization(norm_type)
+                logger.info(f"Amplitude normalization enabled: {norm_type}")
+            else:
+                # Disable normalization
+                self.data_model.set_amplitude_normalization(None)
+                logger.info("Amplitude normalization disabled")
+            
+            # Update tabs
+            self.processing_tab.update_pattern(self.data_model.pattern)
+            
+            # Trigger plot update
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+            
+        except Exception as e:
+            logger.error(f"Failed to toggle amplitude normalization: {e}", exc_info=True)

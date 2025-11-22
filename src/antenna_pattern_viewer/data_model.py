@@ -5,6 +5,8 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from typing import Optional, Dict, Any, List, Set
 from antenna_pattern_viewer.pattern_instance import PatternInstance
 
+import logging
+logger = logging.getLogger(__name__)
 
 class PatternDataModel(QObject):
     """
@@ -34,6 +36,9 @@ class PatternDataModel(QObject):
             'phase_center_translation': None,  # [x, y, z] or None
             'mars_max_extent': None,  # float or None
             'coordinate_format': None,  # 'central', 'sided', or None (original)
+            'theta_origin_shift': None,
+            'phi_origin_shift': None,
+            'amplitude_normalization': None,
         }
         
         # View parameters
@@ -82,6 +87,9 @@ class PatternDataModel(QObject):
             'phase_center_translation': None,
             'mars_max_extent': None,
             'coordinate_format': None,
+            'theta_origin_shift': None,
+            'phi_origin_shift': None,
+            'amplitude_normalization': None,
         }
         
         # Reset view parameters when loading new pattern
@@ -106,6 +114,17 @@ class PatternDataModel(QObject):
         # Apply coordinate transformation first (if any)
         if self._processing_state['coordinate_format'] is not None:
             processed.transform_coordinates(self._processing_state['coordinate_format'])
+
+        # Apply amplitude normalization (if any)
+        if self._processing_state['amplitude_normalization'] is not None:
+            processed.normalize_amplitude(self._processing_state['amplitude_normalization'])
+    
+        # Apply origin shifts (if any)
+        if self._processing_state['theta_origin_shift'] is not None:
+            processed.shift_theta_origin(self._processing_state['theta_origin_shift'])
+        
+        if self._processing_state['phi_origin_shift'] is not None:
+            processed.shift_phi_origin(self._processing_state['phi_origin_shift'])
         
         # Apply phase center translation (if any)
         if self._processing_state['phase_center_translation'] is not None:
@@ -119,6 +138,7 @@ class PatternDataModel(QObject):
         
         # Update current pattern
         self._pattern = processed
+        logger.info("Processing applied to pattern")
         self.pattern_modified.emit(processed)
     
     def set_phase_center_translation(self, translation: Optional[list]):
@@ -313,3 +333,36 @@ class PatternDataModel(QObject):
         """
         self._view_params.update(params)
         self.view_parameters_changed.emit(self._view_params)
+
+    def set_theta_origin_shift(self, theta_offset: Optional[float]):
+        """
+        Enable or disable theta origin shift.
+        
+        Args:
+            theta_offset: Offset in degrees, or None to disable
+        """
+        self._processing_state['theta_origin_shift'] = theta_offset
+        self.apply_processing()
+        self.processing_applied.emit("theta_origin_shift")
+
+    def set_phi_origin_shift(self, phi_offset: Optional[float]):
+        """
+        Enable or disable phi origin shift.
+        
+        Args:
+            phi_offset: Offset in degrees, or None to disable
+        """
+        self._processing_state['phi_origin_shift'] = phi_offset
+        self.apply_processing()
+        self.processing_applied.emit("phi_origin_shift")
+
+    def set_amplitude_normalization(self, norm_type: Optional[str]):
+        """
+        Enable or disable amplitude normalization.
+        
+        Args:
+            norm_type: 'peak', 'boresight', 'mean', or None to disable
+        """
+        self._processing_state['amplitude_normalization'] = norm_type
+        self.apply_processing()
+        self.processing_applied.emit("amplitude_normalization")
