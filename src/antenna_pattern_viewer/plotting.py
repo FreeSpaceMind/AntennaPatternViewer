@@ -1190,7 +1190,7 @@ def plot_pattern_2d_polar(
     colorbar: bool = True,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
-    cmap: str = 'viridis'
+    cmap: str = 'turbo'
 ) -> Tuple[plt.Figure, Optional[Any]]:
     """
     Create a 2D color plot of the antenna pattern using polar projection.
