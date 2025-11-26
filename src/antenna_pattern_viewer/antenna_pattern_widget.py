@@ -85,7 +85,7 @@ class AntennaPatternWidget(QMainWindow):
 
         self.export_dock = QDockWidget("Export", self)
         self.export_dock.setObjectName("ExportDock")
-        self.export_widget = ExportWidget(self.data_model)
+        self.export_widget = ExportWidget(self.data_model, plot_widget=self.plot_2d.plot_widget)
         self.export_dock.setWidget(self.export_widget)
 
         

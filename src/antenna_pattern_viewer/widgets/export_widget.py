@@ -3,12 +3,13 @@ Export widget for saving antenna patterns.
 """
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QRadioButton,
                             QComboBox, QPushButton, QLabel, QFileDialog, QMessageBox,
-                            QHBoxLayout)
+                            QHBoxLayout, QButtonGroup)
 from PyQt6.QtCore import pyqtSignal
 from pathlib import Path
+import pickle
 
 import numpy as np
-from farfield_spherical import FarFieldSpherical, write_cut, write_ffd, save_pattern_npz, write_ticra_sph
+from farfield_spherical import FarFieldSpherical, write_cut, write_ffd, save_pattern_npz, write_ticra_sph, write_csv
 
 
 class ExportWidget(QWidget):
@@ -16,9 +17,10 @@ class ExportWidget(QWidget):
     
     export_completed = pyqtSignal(str)  # Emits file path on successful export
     
-    def __init__(self, data_model, parent=None):
+    def __init__(self, data_model, plot_widget=None, parent=None):
         super().__init__(parent)
         self.data_model = data_model
+        self.plot_widget = plot_widget
         self.setup_ui()
     
     def setup_ui(self):
@@ -37,7 +39,9 @@ class ExportWidget(QWidget):
             "NPZ (Numpy Archive)",
             "CUT (GRASP)",
             "FFD (HFSS)",
-            "SPH (TICRA Spherical Modes)"
+            "SPH (TICRA Spherical Modes)",
+            "CSV (Comma Separated Values)",
+            "PKL (Plot Figure)"
         ])
         type_layout.addWidget(self.file_type_combo)
         export_layout.addLayout(type_layout)
@@ -47,15 +51,21 @@ class ExportWidget(QWidget):
         self.freq_all = QRadioButton("All frequencies")
         self.freq_selected = QRadioButton("Selected only")
         self.freq_all.setChecked(True)
+        self.freq_button_group = QButtonGroup(self)
+        self.freq_button_group.addButton(self.freq_all)
+        self.freq_button_group.addButton(self.freq_selected)
         freq_layout.addWidget(self.freq_all)
         freq_layout.addWidget(self.freq_selected)
         export_layout.addLayout(freq_layout)
-        
+
         # Processing state selection - side by side
         processing_layout = QHBoxLayout()
         self.processing_with = QRadioButton("With processing")
         self.processing_raw = QRadioButton("Raw data")
         self.processing_with.setChecked(True)
+        self.processing_button_group = QButtonGroup(self)
+        self.processing_button_group.addButton(self.processing_with)
+        self.processing_button_group.addButton(self.processing_raw)
         processing_layout.addWidget(self.processing_with)
         processing_layout.addWidget(self.processing_raw)
         export_layout.addLayout(processing_layout)
@@ -86,6 +96,10 @@ class ExportWidget(QWidget):
             return ".ffd"
         elif "SPH" in type_text:
             return ".sph"
+        elif "CSV" in type_text:
+            return ".csv"
+        elif "PKL" in type_text:
+            return ".pkl"
         return ".dat"
     
     def on_export(self):
@@ -121,12 +135,14 @@ class ExportWidget(QWidget):
             if "SPH" not in type_text and self.freq_selected.isChecked():
                 selected_freqs = self.data_model.get_view_param('selected_frequencies')
                 if not selected_freqs:
-                    QMessageBox.warning(self, "No Selection", 
+                    QMessageBox.warning(self, "No Selection",
                                     "No frequency selected. Using first frequency.")
                     freq_idx = 0
                 else:
-                    freq_idx = selected_freqs[0]
-                
+                    # selected_freqs contains frequency values, find the index
+                    freq_value = selected_freqs[0]
+                    freq_idx = int(np.argmin(np.abs(pattern.frequencies - freq_value)))
+
                 # Extract single frequency using data slicing
                 freq_value = pattern.frequencies[freq_idx]
                 pattern = FarFieldSpherical(
@@ -156,6 +172,13 @@ class ExportWidget(QWidget):
             write_cut(pattern, file_path)
         elif "FFD" in type_text:
             write_ffd(pattern, file_path)
+        elif "CSV" in type_text:
+            write_csv(pattern, file_path)
+        elif "PKL" in type_text:
+            if self.plot_widget is None or not hasattr(self.plot_widget, 'figure'):
+                raise ValueError("No plot figure available for export")
+            with open(file_path, 'wb') as f:
+                pickle.dump(self.plot_widget.figure, f)
         elif "SPH" in type_text:
             # Check if SWE has been pre-calculated
             if not hasattr(pattern, 'swe') or not pattern.swe:
