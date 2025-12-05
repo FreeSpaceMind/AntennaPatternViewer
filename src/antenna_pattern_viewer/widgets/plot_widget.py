@@ -4,10 +4,10 @@ Matplotlib integration widget for PyQt6.
 
 import numpy as np
 import matplotlib
-matplotlib.use('Qt5Agg')  # Use Qt5Agg backend for PyQt6 compatibility
+matplotlib.use('QtAgg')  # Use Qt5Agg backend for PyQt6 compatibility
 
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from typing import Tuple, Optional, Any
