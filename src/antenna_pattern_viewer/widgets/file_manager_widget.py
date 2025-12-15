@@ -13,9 +13,9 @@ Redesigned with improved UX:
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QFileDialog, QMessageBox,
-    QInputDialog, QMenu, QSplitter, QTreeView, QLineEdit,
+    QMenu, QSplitter, QTreeView, QLineEdit,
     QDialog, QDialogButtonBox, QFormLayout, QDoubleSpinBox,
-    QToolButton, QGroupBox
+    QToolButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QDir, QSettings
 from PyQt6.QtGui import QColor, QFileSystemModel, QDragEnterEvent, QDropEvent
@@ -250,13 +250,7 @@ class FileManagerWidget(QWidget):
         self.preview_label.setMaximumHeight(50)
         main_layout.addWidget(self.preview_label)
 
-        # === LOADED PATTERNS SECTION ===
-        patterns_section = self.create_patterns_section()
-        main_layout.addWidget(patterns_section, stretch=1)
-
-        # === COMPARISON PANEL ===
-        comparison_panel = self.create_comparison_panel()
-        main_layout.addWidget(comparison_panel)
+        # Note: Loaded Patterns and Comparison sections moved to PatternStrip widget
 
     def create_toolbar(self) -> QWidget:
         """Create toolbar with Open, Recent, and Search."""
@@ -403,69 +397,10 @@ class FileManagerWidget(QWidget):
 
         return widget
 
-    def create_patterns_section(self) -> QWidget:
-        """Create the loaded patterns management section."""
-        group = QGroupBox("Loaded Patterns")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(3)
-
-        # Patterns list
-        self.imported_list = QListWidget()
-        self.imported_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self.imported_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.imported_list.customContextMenuRequested.connect(self.show_context_menu)
-        self.imported_list.itemDoubleClicked.connect(self.on_item_double_clicked)
-        self.imported_list.setMaximumHeight(150)
-        layout.addWidget(self.imported_list)
-
-        # Action buttons
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(5)
-
-        self.set_active_btn = QPushButton("Set Active")
-        self.set_active_btn.setToolTip("Set selected pattern as active")
-        self.set_active_btn.clicked.connect(self.set_active_pattern)
-        button_layout.addWidget(self.set_active_btn)
-
-        self.add_comparison_btn = QPushButton("Add to Comparison")
-        self.add_comparison_btn.setToolTip("Add selected to comparison set")
-        self.add_comparison_btn.clicked.connect(self.add_to_comparison)
-        button_layout.addWidget(self.add_comparison_btn)
-
-        self.unload_btn = QPushButton("Unload")
-        self.unload_btn.setToolTip("Unload selected patterns")
-        self.unload_btn.clicked.connect(self.unload_selected_patterns)
-        button_layout.addWidget(self.unload_btn)
-
-        layout.addLayout(button_layout)
-
-        return group
-
-    def create_comparison_panel(self) -> QWidget:
-        """Create the collapsible comparison panel."""
-        from antenna_pattern_viewer.widgets.collapsible_group import CollapsibleGroupBox
-
-        self.comparison_group = CollapsibleGroupBox("Comparison Set")
-
-        # Comparison list
-        self.comparison_list = QListWidget()
-        self.comparison_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self.comparison_list.setMaximumHeight(100)
-        self.comparison_group.addWidget(self.comparison_list)
-
-        # Remove button
-        self.remove_comparison_btn = QPushButton("Remove from Comparison")
-        self.remove_comparison_btn.clicked.connect(self.remove_from_comparison)
-        self.comparison_group.addWidget(self.remove_comparison_btn)
-
-        return self.comparison_group
-
     def connect_signals(self):
         """Connect data model signals."""
-        self.data_model.instances_changed.connect(self.refresh_imported_list)
-        self.data_model.active_instance_changed.connect(self.on_active_changed)
-        self.data_model.comparison_set_changed.connect(self.on_comparison_changed)
+        # Note: Pattern management moved to PatternStrip widget
+        pass
 
     # === FILE OPERATIONS ===
 
@@ -603,15 +538,6 @@ class FileManagerWidget(QWidget):
         self._refresh_quick_access()
         self.save_settings()
 
-    def unload_selected_patterns(self):
-        """Unload selected patterns from imported list."""
-        selected_items = self.imported_list.selectedItems()
-        if not selected_items:
-            return
-
-        for item in selected_items:
-            instance_id = item.data(Qt.ItemDataRole.UserRole)
-            self.data_model.remove_instance(instance_id)
 
     # === NAVIGATION ===
 
@@ -751,148 +677,4 @@ class FileManagerWidget(QWidget):
                     self.load_pattern_file(path)
         event.acceptProposedAction()
 
-    # === PATTERN MANAGEMENT ===
-
-    def refresh_imported_list(self):
-        """Refresh the imported patterns list."""
-        self.imported_list.clear()
-
-        active_id = self.data_model.get_active_instance()
-        active_id = active_id.instance_id if active_id else None
-
-        comparison_ids = {inst.instance_id for inst in self.data_model.get_comparison_instances()}
-
-        for instance in self.data_model.get_all_instances():
-            item = QListWidgetItem(instance.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, instance.instance_id)
-
-            # Mark active pattern
-            if instance.instance_id == active_id:
-                font = item.font()
-                font.setBold(True)
-                item.setFont(font)
-                item.setBackground(QColor(200, 230, 255))
-                item.setText(f"✓ {instance.display_name}")
-
-            # Mark comparison patterns
-            if instance.instance_id in comparison_ids:
-                if instance.instance_id != active_id:
-                    item.setText(f"◆ {instance.display_name}")
-                item.setForeground(QColor(0, 100, 200))
-
-            self.imported_list.addItem(item)
-
-        self.refresh_comparison_list()
-
-    def refresh_comparison_list(self):
-        """Refresh the comparison set list."""
-        self.comparison_list.clear()
-
-        comparison_instances = self.data_model.get_comparison_instances()
-
-        for instance in comparison_instances:
-            item = QListWidgetItem(instance.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, instance.instance_id)
-            self.comparison_list.addItem(item)
-
-        count = len(comparison_instances)
-        self.comparison_group.setTitle(f"Comparison Set ({count})")
-
-    def remove_from_comparison(self):
-        """Remove selected patterns from comparison set."""
-        if self.comparison_list.hasFocus():
-            selected_items = self.comparison_list.selectedItems()
-        else:
-            selected_items = self.imported_list.selectedItems()
-
-        for item in selected_items:
-            instance_id = item.data(Qt.ItemDataRole.UserRole)
-            self.data_model.remove_from_comparison(instance_id)
-
-    def set_active_pattern(self):
-        """Set selected pattern as active."""
-        selected_items = self.imported_list.selectedItems()
-        if not selected_items:
-            return
-
-        item = selected_items[0]
-        instance_id = item.data(Qt.ItemDataRole.UserRole)
-        self.data_model.set_active_instance(instance_id)
-
-    def add_to_comparison(self):
-        """Add selected patterns to comparison set."""
-        selected_items = self.imported_list.selectedItems()
-        for item in selected_items:
-            instance_id = item.data(Qt.ItemDataRole.UserRole)
-            self.data_model.add_to_comparison(instance_id)
-
-    def show_context_menu(self, pos):
-        """Show context menu for imported pattern."""
-        item = self.imported_list.itemAt(pos)
-        if not item:
-            return
-
-        menu = QMenu(self)
-
-        rename_action = menu.addAction("Rename")
-        duplicate_action = menu.addAction("Duplicate")
-        menu.addSeparator()
-        delete_action = menu.addAction("Delete")
-
-        action = menu.exec(self.imported_list.mapToGlobal(pos))
-
-        instance_id = item.data(Qt.ItemDataRole.UserRole)
-
-        if action == rename_action:
-            self.rename_pattern(instance_id)
-        elif action == duplicate_action:
-            self.duplicate_pattern(instance_id)
-        elif action == delete_action:
-            self.data_model.remove_instance(instance_id)
-
-    def rename_pattern(self, instance_id: str):
-        """Rename a pattern instance."""
-        instance = self.data_model.get_instance(instance_id)
-        if not instance:
-            return
-
-        new_name, ok = QInputDialog.getText(
-            self,
-            "Rename Pattern",
-            "Enter new name:",
-            text=instance.display_name
-        )
-
-        if ok and new_name:
-            self.data_model.rename_instance(instance_id, new_name)
-
-    def duplicate_pattern(self, instance_id: str):
-        """Duplicate a pattern instance."""
-        instance = self.data_model.get_instance(instance_id)
-        if not instance:
-            return
-
-        new_name, ok = QInputDialog.getText(
-            self,
-            "Duplicate Pattern",
-            "Enter name for duplicate:",
-            text=f"{instance.display_name} (copy)"
-        )
-
-        if ok and new_name:
-            new_instance = instance.clone(new_name)
-            self.data_model.add_instance(new_instance)
-
-    def on_item_double_clicked(self, item):
-        """Handle double-click on imported pattern."""
-        instance_id = item.data(Qt.ItemDataRole.UserRole)
-        self.data_model.set_active_instance(instance_id)
-
-    def on_active_changed(self, instance):
-        """Handle active instance change."""
-        self.refresh_imported_list()
-
-    def on_comparison_changed(self, instance_ids):
-        """Handle comparison set change."""
-        self.refresh_comparison_list()
-        self.refresh_imported_list()
+    # Note: Pattern management functions moved to PatternStrip widget
