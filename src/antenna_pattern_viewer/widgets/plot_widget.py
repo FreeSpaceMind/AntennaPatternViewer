@@ -35,7 +35,13 @@ class PlotWidget(QWidget):
         self.current_statistic_type = 'mean'
         self.current_percentile_range = (25, 75)
         self.current_colorbar = None
-        
+
+        # Store current matplotlib axis limits to preserve across data changes
+        self.current_matplotlib_limits = {
+            '1d_cut': {'xlim': None, 'ylim': None},
+            '2d_polar': {'ylim': None, 'zlim': None}
+        }
+
         # Store axis limits for each plot type
         self.axis_limits_memory = {
             '1d_cut': {
@@ -139,7 +145,12 @@ class PlotWidget(QWidget):
         self.z_max_edit.editingFinished.connect(self.update_plot_formatting)
         self.z_max_edit.setVisible(False)
         format_layout.addWidget(self.z_max_edit)
-        
+
+        # Reset Scale button
+        self.reset_scale_btn = QPushButton("Reset Scale")
+        self.reset_scale_btn.clicked.connect(self.reset_scale)
+        format_layout.addWidget(self.reset_scale_btn)
+
         format_layout.addStretch()
         
         # Add to main layout
@@ -154,10 +165,11 @@ class PlotWidget(QWidget):
         self.current_colorbar = None
 
     
-    def update_plot(self, pattern, frequencies, phi_angles, value_type, 
-                    show_cross_pol, unwrap_phase, plot_format, component, 
-                    statistics_enabled=False, show_range=True, 
-                    statistic_type='mean', percentile_range=(25, 75)
+    def update_plot(self, pattern, frequencies, phi_angles, value_type,
+                    show_cross_pol, unwrap_phase, plot_format, component,
+                    statistics_enabled=False, show_range=True,
+                    statistic_type='mean', percentile_range=(25, 75),
+                    preserve_limits=True
     ):
         """
         Update the plot with new data and parameters.
@@ -178,6 +190,10 @@ class PlotWidget(QWidget):
         import numpy as np
         from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_pattern_statistics
         
+        # Track if plot format is changing (for axis limits handling)
+        old_plot_format = self.current_plot_format
+        format_changing = (old_plot_format != plot_format)
+
         # Store current parameters for replotting
         self.current_pattern = pattern
         self.current_frequencies = frequencies
@@ -191,9 +207,21 @@ class PlotWidget(QWidget):
         self.current_show_range = show_range
         self.current_statistic_type = statistic_type
         self.current_percentile_range = percentile_range
-        
+
         # Update control labels and visibility based on plot format
-        self.update_controls_for_plot_format()
+        self.update_controls_for_plot_format(format_changing)
+
+        # Save current matplotlib axis limits before clearing (skip if resetting)
+        if preserve_limits and self.figure.axes:
+            ax = self.figure.axes[0]
+            is_polar = hasattr(ax, 'set_theta_zero_location')
+            if is_polar:
+                self.current_matplotlib_limits['2d_polar']['ylim'] = ax.get_ylim()
+                if hasattr(self, 'current_colorbar') and self.current_colorbar:
+                    self.current_matplotlib_limits['2d_polar']['zlim'] = self.current_colorbar.mappable.get_clim()
+            else:
+                self.current_matplotlib_limits['1d_cut']['xlim'] = ax.get_xlim()
+                self.current_matplotlib_limits['1d_cut']['ylim'] = ax.get_ylim()
 
         # Clear the current figure
         self.figure.clear()
@@ -263,7 +291,20 @@ class PlotWidget(QWidget):
                     ax=self.ax,
                     unwrap_phase=unwrap_phase,
                 )
-            
+
+            # Restore saved axis limits to preserve scale across data changes
+            if preserve_limits:
+                if plot_format == '2d_polar':
+                    limits = self.current_matplotlib_limits['2d_polar']
+                    if limits['ylim']:
+                        self.ax.set_ylim(limits['ylim'])
+                else:
+                    limits = self.current_matplotlib_limits['1d_cut']
+                    if limits['xlim']:
+                        self.ax.set_xlim(limits['xlim'])
+                    if limits['ylim']:
+                        self.ax.set_ylim(limits['ylim'])
+
             # Apply formatting
             self.update_plot_formatting()
             
@@ -281,16 +322,16 @@ class PlotWidget(QWidget):
         
         self.canvas.draw()
 
-    def update_controls_for_plot_format(self):
+    def update_controls_for_plot_format(self, format_changing=False):
         """Update axis control visibility and memory based on current plot format in PlotWidget."""
         # Use the actual plot format that was set (this comes from the plot_format parameter)
         is_2d = (self.current_plot_format == '2d_polar')
-        
+
         if is_2d:
-            # Save current 1D axis limits before switching
-            if hasattr(self, 'axis_limits_memory'):
+            # Save current 1D axis limits before switching (only when format is changing)
+            if format_changing and hasattr(self, 'axis_limits_memory'):
                 self.save_current_axis_limits('1d_cut')
-            
+
             # Update labels for 2D polar plot
             self.legend_colorbar_check.setText("Colorbar")
             self.y_theta_label.setText("Theta:")
@@ -320,13 +361,13 @@ class PlotWidget(QWidget):
             self.z_to_label.setVisible(True)
             self.z_max_edit.setVisible(True)
             
-            # Restore 2D axis limits
-            if hasattr(self, 'axis_limits_memory'):
+            # Restore 2D axis limits (only when format is changing)
+            if format_changing and hasattr(self, 'axis_limits_memory'):
                 self.restore_axis_limits('2d_polar')
-            
+
         else:
-            # Save current 2D axis limits before switching
-            if hasattr(self, 'axis_limits_memory'):
+            # Save current 2D axis limits before switching (only when format is changing)
+            if format_changing and hasattr(self, 'axis_limits_memory'):
                 self.save_current_axis_limits('2d_polar')
             
             # Update labels for 1D cut plot
@@ -359,8 +400,8 @@ class PlotWidget(QWidget):
             self.z_to_label.setVisible(False)
             self.z_max_edit.setVisible(False)
             
-            # Restore 1D axis limits
-            if hasattr(self, 'axis_limits_memory'):
+            # Restore 1D axis limits (only when format is changing)
+            if format_changing and hasattr(self, 'axis_limits_memory'):
                 self.restore_axis_limits('1d_cut')
 
     def get_colorbar_limits(self):
@@ -472,7 +513,7 @@ class PlotWidget(QWidget):
                     ax.set_ylim(new_min, new_max)
             except ValueError:
                 pass
-    def replot_current_data(self):
+    def replot_current_data(self, preserve_limits=True):
         """Replot using stored parameters."""
         if self.current_pattern is not None:
             self.update_plot(
@@ -487,7 +528,8 @@ class PlotWidget(QWidget):
                 statistics_enabled=self.current_statistics_enabled,
                 show_range=self.current_show_range,
                 statistic_type=self.current_statistic_type,
-                percentile_range=self.current_percentile_range
+                percentile_range=self.current_percentile_range,
+                preserve_limits=preserve_limits
             )
     
     def save_plot(self, filename):
@@ -554,6 +596,19 @@ class PlotWidget(QWidget):
         self.y_theta_max_edit.setText('')
         self.z_min_edit.setText('')
         self.z_max_edit.setText('')
+
+    def reset_scale(self):
+        """Reset axis limits to auto-scale."""
+        plot_type = self.current_plot_format
+        # Clear stored matplotlib limits
+        if plot_type == '2d_polar':
+            self.current_matplotlib_limits['2d_polar'] = {'ylim': None, 'zlim': None}
+        else:
+            self.current_matplotlib_limits['1d_cut'] = {'xlim': None, 'ylim': None}
+        # Clear UI fields
+        self.clear_axis_limits(plot_type)
+        # Replot with auto-scale (don't preserve old limits)
+        self.replot_current_data(preserve_limits=False)
 
     def update_plot_formatting(self):
         """Update plot formatting without replotting data."""
