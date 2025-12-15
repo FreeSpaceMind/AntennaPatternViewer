@@ -2,18 +2,36 @@
 Left panel widget combining icon sidebar, pattern strip, and stacked panels.
 
 This widget serves as the main container for the left side of the application,
-providing navigation between Files, Controls, Analysis, and Export panels.
+providing navigation between panels. It is designed to be reusable across
+different applications by allowing customization of the first panel.
+
+Usage:
+    # Default (AntennaPatternViewer with file manager)
+    left_panel = LeftPanelWidget(data_model, plot_widget=plot_widget)
+
+    # Custom first panel (e.g., pattern generator)
+    generator_widget = MyPatternGeneratorWidget(data_model)
+    left_panel = LeftPanelWidget(
+        data_model,
+        first_panel_widget=generator_widget,
+        first_panel_config={"icon": "🔧", "tooltip": "Generator - Create patterns", "name": "generator"},
+        show_pattern_strip=False,  # Optional: hide pattern strip
+    )
 """
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QSizePolicy, QFileDialog
 )
 from PyQt6.QtCore import pyqtSignal
+from typing import Optional, Dict
 
 from .icon_sidebar import IconSidebar
 from .pattern_strip import PatternStrip
-from .file_manager_widget import FileManagerWidget
-from .control_panel_widget import ControlPanelWidget
+from .view_panel import ViewPanel
+from .processing_panel import ProcessingPanel
 from .export_widget import ExportWidget
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 class LeftPanelWidget(QWidget):
@@ -21,15 +39,26 @@ class LeftPanelWidget(QWidget):
     Container widget for the left panel with icon navigation.
 
     Layout:
-    ┌─────────┬──────────────────────┐
-    │         │ PatternStrip         │
-    │ Icon    ├──────────────────────┤
-    │ Sidebar │ QStackedWidget       │
-    │  📁     │  [0] FileManager     │
-    │  ⚙️     │  [1] ControlPanel    │
-    │  📊     │  [2] AnalysisPanel   │
-    │  📤     │  [3] ExportPanel     │
-    └─────────┴──────────────────────┘
+    +----------+----------------------+
+    |          | PatternStrip         |
+    | Icon     +----------------------+
+    | Sidebar  | QStackedWidget       |
+    |  Custom  |  [0] CustomPanel     |
+    |  View    |  [1] ViewPanel       |
+    |  Proc    |  [2] ProcessingPanel |
+    |  Anlys   |  [3] AnalysisPanel   |
+    |  Export  |  [4] ExportPanel     |
+    +----------+----------------------+
+
+    Args:
+        data_model: The pattern data model
+        plot_widget: Optional plot widget for export functionality
+        first_panel_widget: Optional custom widget for the first panel.
+            If None, uses FileManagerWidget.
+        first_panel_config: Optional dict with icon/tooltip for first panel.
+            Keys: "icon", "tooltip", "name"
+        show_pattern_strip: Whether to show the pattern strip (default True)
+        parent: Parent widget
     """
 
     # Forward signals from child widgets
@@ -38,10 +67,25 @@ class LeftPanelWidget(QWidget):
     # File filter for pattern files
     FILE_FILTER = "Pattern Files (*.cut *.ffd *.npz *.sph);;All Files (*)"
 
-    def __init__(self, data_model, plot_widget=None, parent=None):
+    def __init__(
+        self,
+        data_model,
+        plot_widget=None,
+        first_panel_widget: Optional[QWidget] = None,
+        first_panel_config: Optional[Dict[str, str]] = None,
+        show_pattern_strip: bool = True,
+        parent=None
+    ):
         super().__init__(parent)
         self.data_model = data_model
         self.plot_widget = plot_widget
+        self._first_panel_widget = first_panel_widget
+        self._first_panel_config = first_panel_config
+        self._show_pattern_strip = show_pattern_strip
+
+        # Will be set during setup_panels
+        self.first_panel = None  # The first panel widget (custom or FileManager)
+        self.file_manager = None  # Only set if using default FileManager
 
         self.setup_ui()
         self.connect_signals()
@@ -52,8 +96,8 @@ class LeftPanelWidget(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Icon sidebar (left edge)
-        self.icon_sidebar = IconSidebar()
+        # Icon sidebar (left edge) - pass custom first panel config if provided
+        self.icon_sidebar = IconSidebar(first_panel=self._first_panel_config)
         main_layout.addWidget(self.icon_sidebar)
 
         # Right side container (pattern strip + stacked panels)
@@ -62,9 +106,11 @@ class LeftPanelWidget(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        # Pattern strip (always visible at top)
-        self.pattern_strip = PatternStrip(self.data_model)
-        right_layout.addWidget(self.pattern_strip)
+        # Pattern strip (optionally visible at top)
+        self.pattern_strip = None
+        if self._show_pattern_strip:
+            self.pattern_strip = PatternStrip(self.data_model)
+            right_layout.addWidget(self.pattern_strip)
 
         # Stacked widget for panels
         self.panel_stack = QStackedWidget()
@@ -78,20 +124,30 @@ class LeftPanelWidget(QWidget):
 
     def setup_panels(self):
         """Create and add all panels to the stack."""
-        # Panel 0: File Manager
-        self.file_manager = FileManagerWidget(self.data_model)
-        self.panel_stack.addWidget(self.file_manager)
+        # Panel 0: First panel (custom or FileManager)
+        if self._first_panel_widget is not None:
+            self.first_panel = self._first_panel_widget
+        else:
+            # Import here to avoid circular imports and make FileManager optional
+            from .file_manager_widget import FileManagerWidget
+            self.first_panel = FileManagerWidget(self.data_model)
+            self.file_manager = self.first_panel  # Alias for backwards compatibility
+        self.panel_stack.addWidget(self.first_panel)
 
-        # Panel 1: Control Panel (View + Processing only)
-        self.control_panel = ControlPanelWidget(self.data_model)
-        self.panel_stack.addWidget(self.control_panel)
+        # Panel 1: View Panel
+        self.view_panel = ViewPanel(self.data_model)
+        self.panel_stack.addWidget(self.view_panel)
 
-        # Panel 2: Analysis Panel
+        # Panel 2: Processing Panel
+        self.processing_panel = ProcessingPanel(self.data_model)
+        self.panel_stack.addWidget(self.processing_panel)
+
+        # Panel 3: Analysis Panel
         from .analysis_panel import AnalysisPanel
         self.analysis_panel = AnalysisPanel(self.data_model)
         self.panel_stack.addWidget(self.analysis_panel)
 
-        # Panel 3: Export Panel
+        # Panel 4: Export Panel
         self.export_panel = ExportWidget(self.data_model, plot_widget=self.plot_widget)
         self.panel_stack.addWidget(self.export_panel)
 
@@ -100,14 +156,186 @@ class LeftPanelWidget(QWidget):
         # Icon sidebar -> panel stack
         self.icon_sidebar.panel_changed.connect(self.panel_stack.setCurrentIndex)
 
-        # Pattern strip -> file dialog
-        self.pattern_strip.add_pattern_requested.connect(self.open_file_dialog)
+        # Pattern strip -> file dialog (only if pattern strip exists)
+        if self.pattern_strip is not None:
+            self.pattern_strip.add_pattern_requested.connect(self.open_file_dialog)
+
+        # View panel -> data model
+        self.view_panel.parameters_changed.connect(self.on_view_params_changed)
+
+        # Processing panel signals -> data model operations
+        self.processing_panel.apply_phase_center_signal.connect(self.on_apply_phase_center)
+        self.processing_panel.apply_mars_signal.connect(self.on_apply_mars)
+        self.processing_panel.polarization_changed.connect(self.on_polarization_changed)
+        self.processing_panel.coordinate_format_changed.connect(self.on_coordinate_format_changed)
+        self.processing_panel.shift_theta_origin_signal.connect(self.on_shift_theta_origin)
+        self.processing_panel.shift_phi_origin_signal.connect(self.on_shift_phi_origin)
+        self.processing_panel.normalize_amplitude_signal.connect(self.on_normalize_amplitude)
 
         # Analysis panel -> forward nearfield signal
         self.analysis_panel.nearfield_calculated.connect(self.nearfield_calculated.emit)
 
+    # === VIEW PANEL HANDLERS ===
+
+    def on_view_params_changed(self):
+        """Handle view parameter changes from view panel."""
+        params = self.view_panel.get_current_parameters()
+        self.data_model.update_view_params(params)
+        self.data_model.view_parameters_changed.emit(params)
+
+    # === PROCESSING PANEL HANDLERS ===
+
+    def on_apply_phase_center(self, x, y, z, frequency):
+        """Handle phase center translation toggle."""
+        if self.data_model.original_pattern is None:
+            return
+
+        try:
+            is_checked = self.processing_panel.apply_phase_center_check.isChecked()
+
+            if is_checked:
+                phase_center = [x, y, z]
+                self.data_model.set_phase_center_translation(phase_center, frequency)
+                logger.info(f"Phase center shift enabled: {phase_center}")
+            else:
+                self.data_model.set_phase_center_translation(None, frequency)
+                logger.info("Phase center shift disabled")
+
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to toggle phase center: {e}", exc_info=True)
+
+    def on_apply_mars(self, max_radial_extent):
+        """Handle MARS toggle."""
+        if self.data_model.original_pattern is None:
+            return
+
+        try:
+            is_checked = self.processing_panel.apply_mars_check.isChecked()
+
+            if is_checked:
+                self.data_model.set_mars_processing(max_radial_extent)
+                logger.info(f"MARS enabled: max_extent={max_radial_extent}")
+            else:
+                self.data_model.set_mars_processing(None)
+                logger.info("MARS disabled")
+
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to toggle MARS: {e}", exc_info=True)
+
+    def on_polarization_changed(self, polarization):
+        """Handle polarization change."""
+        if self.data_model.pattern is None:
+            return
+
+        try:
+            pattern = self.data_model.pattern.convert_polarization(polarization)
+            self.data_model._pattern = pattern
+            self.data_model.pattern_modified.emit(pattern)
+            self.data_model.processing_applied.emit("polarization_conversion")
+            self.processing_panel.on_pattern_loaded(pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to convert polarization: {e}")
+
+    def on_coordinate_format_changed(self, format_type):
+        """Handle coordinate format change."""
+        if self.data_model.pattern is None:
+            return
+
+        try:
+            if format_type == 'central':
+                pattern = self.data_model.pattern.to_central_coordinates()
+            else:
+                pattern = self.data_model.pattern.to_sided_coordinates()
+
+            self.data_model._pattern = pattern
+            self.data_model.pattern_modified.emit(pattern)
+            self.data_model.processing_applied.emit("coordinate_conversion")
+            self.processing_panel.on_pattern_loaded(pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to convert coordinates: {e}")
+
+    def on_shift_theta_origin(self, theta_offset):
+        """Handle theta origin shift toggle."""
+        if self.data_model.original_pattern is None:
+            return
+
+        try:
+            is_checked = self.processing_panel.apply_theta_shift_check.isChecked()
+
+            if is_checked:
+                self.data_model.set_theta_origin_shift(theta_offset)
+                logger.info(f"Theta origin shift enabled: {theta_offset} deg")
+            else:
+                self.data_model.set_theta_origin_shift(None)
+                logger.info("Theta origin shift disabled")
+
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to toggle theta origin shift: {e}", exc_info=True)
+
+    def on_shift_phi_origin(self, phi_offset):
+        """Handle phi origin shift toggle."""
+        if self.data_model.original_pattern is None:
+            return
+
+        try:
+            is_checked = self.processing_panel.apply_phi_shift_check.isChecked()
+
+            if is_checked:
+                self.data_model.set_phi_origin_shift(phi_offset)
+                logger.info(f"Phi origin shift enabled: {phi_offset} deg")
+            else:
+                self.data_model.set_phi_origin_shift(None)
+                logger.info("Phi origin shift disabled")
+
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to toggle phi origin shift: {e}", exc_info=True)
+
+    def on_normalize_amplitude(self, norm_type):
+        """Handle amplitude normalization toggle."""
+        if self.data_model.original_pattern is None:
+            return
+
+        try:
+            is_checked = self.processing_panel.apply_normalization_check.isChecked()
+
+            if is_checked and norm_type:
+                self.data_model.set_amplitude_normalization(norm_type)
+                logger.info(f"Amplitude normalization enabled: {norm_type}")
+            else:
+                self.data_model.set_amplitude_normalization(None)
+                logger.info("Amplitude normalization disabled")
+
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to toggle amplitude normalization: {e}", exc_info=True)
+
+    # === FILE OPERATIONS ===
+
     def open_file_dialog(self):
         """Open file dialog to load patterns."""
+        # Only works if file_manager exists (default configuration)
+        if self.file_manager is None:
+            logger.warning("open_file_dialog called but file_manager is not available")
+            return
+
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Open Pattern Files",
@@ -116,31 +344,47 @@ class LeftPanelWidget(QWidget):
         )
 
         if files:
-            # Use file manager to load files
             from pathlib import Path
             for file_path in files:
                 self.file_manager.load_pattern_file(Path(file_path))
+
+    # === PANEL NAVIGATION ===
+
+    # Panel indices (match IconSidebar)
+    PANEL_FIRST = 0
+    PANEL_VIEW = 1
+    PANEL_PROCESSING = 2
+    PANEL_ANALYSIS = 3
+    PANEL_EXPORT = 4
 
     def set_current_panel(self, index: int):
         """Set the current panel by index."""
         self.icon_sidebar.set_current_panel(index)
         self.panel_stack.setCurrentIndex(index)
 
-    def show_files_panel(self):
-        """Show the Files panel."""
-        self.set_current_panel(IconSidebar.PANEL_FILES)
+    def show_first_panel(self):
+        """Show the first panel (custom or Files)."""
+        self.set_current_panel(self.PANEL_FIRST)
 
-    def show_controls_panel(self):
-        """Show the Controls panel."""
-        self.set_current_panel(IconSidebar.PANEL_CONTROLS)
+    def show_files_panel(self):
+        """Show the Files panel (alias for show_first_panel for backwards compatibility)."""
+        self.show_first_panel()
+
+    def show_view_panel(self):
+        """Show the View panel."""
+        self.set_current_panel(self.PANEL_VIEW)
+
+    def show_processing_panel(self):
+        """Show the Processing panel."""
+        self.set_current_panel(self.PANEL_PROCESSING)
 
     def show_analysis_panel(self):
         """Show the Analysis panel."""
-        self.set_current_panel(IconSidebar.PANEL_ANALYSIS)
+        self.set_current_panel(self.PANEL_ANALYSIS)
 
     def show_export_panel(self):
         """Show the Export panel."""
-        self.set_current_panel(IconSidebar.PANEL_EXPORT)
+        self.set_current_panel(self.PANEL_EXPORT)
 
     @property
     def export_completed(self):

@@ -5,13 +5,11 @@ This is a standalone panel (not a tab) that provides analysis capabilities
 including Spherical Wave Expansion and Near Field evaluation.
 """
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QComboBox, QPushButton, QDoubleSpinBox,
     QScrollArea, QSpinBox, QTextEdit, QSizePolicy
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-
-from .collapsible_group import CollapsibleGroupBox
 
 import numpy as np
 import logging
@@ -55,131 +53,145 @@ class AnalysisPanel(QWidget):
         # Create scrollable widget
         scroll_widget = QWidget()
         layout = QVBoxLayout(scroll_widget)
+        layout.setSpacing(10)
 
-        # Spherical Wave Expansion section
-        swe_group = CollapsibleGroupBox("Spherical Wave Expansion")
-        swe_group.addWidget(QLabel("Calculate spherical mode coefficients:"))
+        # === SPHERICAL WAVE EXPANSION ===
+        swe_group = QGroupBox("Spherical Wave Expansion")
+        swe_layout = QVBoxLayout(swe_group)
+
+        swe_layout.addWidget(QLabel("Calculate spherical mode coefficients:"))
 
         # Frequency selection for SWE
-        swe_freq_layout = QHBoxLayout()
-        swe_freq_layout.addWidget(QLabel("Frequency:"))
+        swe_freq_row = QHBoxLayout()
+        swe_freq_row.addWidget(QLabel("Frequency:"))
         self.swe_freq_combo = QComboBox()
-        swe_freq_layout.addWidget(self.swe_freq_combo)
-        swe_group.addLayout(swe_freq_layout)
+        swe_freq_row.addWidget(self.swe_freq_combo)
+        swe_freq_row.addStretch()
+        swe_layout.addLayout(swe_freq_row)
 
         # Calculate button
         self.calculate_swe_btn = QPushButton("Calculate SWE Coefficients")
         self.calculate_swe_btn.clicked.connect(self.on_calculate_swe)
-        swe_group.addWidget(self.calculate_swe_btn)
+        swe_layout.addWidget(self.calculate_swe_btn)
 
         # Results display
         self.swe_results = QTextEdit()
         self.swe_results.setReadOnly(True)
         self.swe_results.setMaximumHeight(150)
         self.swe_results.setPlaceholderText("SWE results will appear here...")
-        swe_group.addWidget(self.swe_results)
+        swe_layout.addWidget(self.swe_results)
 
         layout.addWidget(swe_group)
 
-        # Near Field Evaluation section
-        nf_group = CollapsibleGroupBox("Near Field Evaluation")
+        # === NEAR FIELD EVALUATION ===
+        nf_group = QGroupBox("Near Field Evaluation")
+        nf_layout = QVBoxLayout(nf_group)
 
-        nf_group.addWidget(QLabel("Evaluate near field from SWE coefficients:"))
+        nf_layout.addWidget(QLabel("Evaluate near field from SWE coefficients:"))
 
         # Surface type selection
-        surface_layout = QHBoxLayout()
-        surface_layout.addWidget(QLabel("Surface Type:"))
+        surface_row = QHBoxLayout()
+        surface_row.addWidget(QLabel("Surface Type:"))
         self.nf_surface_combo = QComboBox()
         self.nf_surface_combo.addItems(["Spherical Surface", "Planar Surface"])
         self.nf_surface_combo.currentTextChanged.connect(self.on_surface_type_changed)
-        surface_layout.addWidget(self.nf_surface_combo)
-        nf_group.addLayout(surface_layout)
+        surface_row.addWidget(self.nf_surface_combo)
+        surface_row.addStretch()
+        nf_layout.addLayout(surface_row)
 
         # Spherical surface controls
         self.sphere_controls_widget = QWidget()
         sphere_layout = QVBoxLayout(self.sphere_controls_widget)
         sphere_layout.setContentsMargins(0, 0, 0, 0)
 
-        radius_layout = QHBoxLayout()
-        radius_layout.addWidget(QLabel("Radius:"))
+        radius_row = QHBoxLayout()
+        radius_row.addWidget(QLabel("Radius:"))
         self.nf_sphere_radius_spin = QDoubleSpinBox()
         self.nf_sphere_radius_spin.setRange(0.001, 10.0)
         self.nf_sphere_radius_spin.setValue(0.05)
         self.nf_sphere_radius_spin.setSuffix(" m")
         self.nf_sphere_radius_spin.setDecimals(4)
-        radius_layout.addWidget(self.nf_sphere_radius_spin)
-        sphere_layout.addLayout(radius_layout)
+        radius_row.addWidget(self.nf_sphere_radius_spin)
+        radius_row.addStretch()
+        sphere_layout.addLayout(radius_row)
 
-        theta_pts_layout = QHBoxLayout()
-        theta_pts_layout.addWidget(QLabel("Theta Points:"))
+        theta_pts_row = QHBoxLayout()
+        theta_pts_row.addWidget(QLabel("Theta Points:"))
         self.nf_theta_points_spin = QSpinBox()
         self.nf_theta_points_spin.setRange(10, 361)
         self.nf_theta_points_spin.setValue(91)
-        theta_pts_layout.addWidget(self.nf_theta_points_spin)
-        sphere_layout.addLayout(theta_pts_layout)
+        theta_pts_row.addWidget(self.nf_theta_points_spin)
+        theta_pts_row.addStretch()
+        sphere_layout.addLayout(theta_pts_row)
 
-        phi_pts_layout = QHBoxLayout()
-        phi_pts_layout.addWidget(QLabel("Phi Points:"))
+        phi_pts_row = QHBoxLayout()
+        phi_pts_row.addWidget(QLabel("Phi Points:"))
         self.nf_phi_points_spin = QSpinBox()
         self.nf_phi_points_spin.setRange(10, 361)
         self.nf_phi_points_spin.setValue(91)
-        phi_pts_layout.addWidget(self.nf_phi_points_spin)
-        sphere_layout.addLayout(phi_pts_layout)
+        phi_pts_row.addWidget(self.nf_phi_points_spin)
+        phi_pts_row.addStretch()
+        sphere_layout.addLayout(phi_pts_row)
 
-        nf_group.addWidget(self.sphere_controls_widget)
+        nf_layout.addWidget(self.sphere_controls_widget)
 
         # Planar surface controls
         self.plane_controls_widget = QWidget()
         plane_layout = QVBoxLayout(self.plane_controls_widget)
         plane_layout.setContentsMargins(0, 0, 0, 0)
 
-        x_extent_layout = QHBoxLayout()
-        x_extent_layout.addWidget(QLabel("X Extent:"))
+        x_extent_row = QHBoxLayout()
+        x_extent_row.addWidget(QLabel("X Extent:"))
         self.nf_x_extent_spin = QDoubleSpinBox()
         self.nf_x_extent_spin.setRange(0.01, 10.0)
         self.nf_x_extent_spin.setValue(0.5)
         self.nf_x_extent_spin.setSuffix(" m")
         self.nf_x_extent_spin.setDecimals(3)
-        x_extent_layout.addWidget(self.nf_x_extent_spin)
-        plane_layout.addLayout(x_extent_layout)
+        x_extent_row.addWidget(self.nf_x_extent_spin)
+        x_extent_row.addStretch()
+        plane_layout.addLayout(x_extent_row)
 
-        y_extent_layout = QHBoxLayout()
-        y_extent_layout.addWidget(QLabel("Y Extent:"))
+        y_extent_row = QHBoxLayout()
+        y_extent_row.addWidget(QLabel("Y Extent:"))
         self.nf_y_extent_spin = QDoubleSpinBox()
         self.nf_y_extent_spin.setRange(0.01, 10.0)
         self.nf_y_extent_spin.setValue(0.5)
         self.nf_y_extent_spin.setSuffix(" m")
         self.nf_y_extent_spin.setDecimals(3)
-        y_extent_layout.addWidget(self.nf_y_extent_spin)
-        plane_layout.addLayout(y_extent_layout)
+        y_extent_row.addWidget(self.nf_y_extent_spin)
+        y_extent_row.addStretch()
+        plane_layout.addLayout(y_extent_row)
 
-        z_dist_layout = QHBoxLayout()
-        z_dist_layout.addWidget(QLabel("Z Distance:"))
+        z_dist_row = QHBoxLayout()
+        z_dist_row.addWidget(QLabel("Z Distance:"))
         self.nf_z_distance_spin = QDoubleSpinBox()
         self.nf_z_distance_spin.setRange(0.001, 10.0)
         self.nf_z_distance_spin.setValue(0.1)
         self.nf_z_distance_spin.setSuffix(" m")
         self.nf_z_distance_spin.setDecimals(4)
-        z_dist_layout.addWidget(self.nf_z_distance_spin)
-        plane_layout.addLayout(z_dist_layout)
+        z_dist_row.addWidget(self.nf_z_distance_spin)
+        z_dist_row.addStretch()
+        plane_layout.addLayout(z_dist_row)
 
-        x_pts_layout = QHBoxLayout()
-        x_pts_layout.addWidget(QLabel("X Points:"))
+        x_pts_row = QHBoxLayout()
+        x_pts_row.addWidget(QLabel("X Points:"))
         self.nf_x_points_spin = QSpinBox()
         self.nf_x_points_spin.setRange(10, 501)
         self.nf_x_points_spin.setValue(51)
-        x_pts_layout.addWidget(self.nf_x_points_spin)
-        plane_layout.addLayout(x_pts_layout)
+        x_pts_row.addWidget(self.nf_x_points_spin)
+        x_pts_row.addStretch()
+        plane_layout.addLayout(x_pts_row)
 
-        y_pts_layout = QHBoxLayout()
-        y_pts_layout.addWidget(QLabel("Y Points:"))
+        y_pts_row = QHBoxLayout()
+        y_pts_row.addWidget(QLabel("Y Points:"))
         self.nf_y_points_spin = QSpinBox()
         self.nf_y_points_spin.setRange(10, 501)
         self.nf_y_points_spin.setValue(51)
-        y_pts_layout.addWidget(self.nf_y_points_spin)
-        plane_layout.addLayout(y_pts_layout)
+        y_pts_row.addWidget(self.nf_y_points_spin)
+        y_pts_row.addStretch()
+        plane_layout.addLayout(y_pts_row)
 
-        nf_group.addWidget(self.plane_controls_widget)
+        nf_layout.addWidget(self.plane_controls_widget)
 
         # Initially hide plane controls
         self.plane_controls_widget.setVisible(False)
@@ -188,14 +200,14 @@ class AnalysisPanel(QWidget):
         self.calculate_nf_btn = QPushButton("Calculate Near Field")
         self.calculate_nf_btn.clicked.connect(self.on_calculate_nearfield)
         self.calculate_nf_btn.setEnabled(False)
-        nf_group.addWidget(self.calculate_nf_btn)
+        nf_layout.addWidget(self.calculate_nf_btn)
 
         # Results display
         self.nf_results = QTextEdit()
         self.nf_results.setReadOnly(True)
         self.nf_results.setMaximumHeight(120)
         self.nf_results.setPlaceholderText("Near field results will appear here...")
-        nf_group.addWidget(self.nf_results)
+        nf_layout.addWidget(self.nf_results)
 
         layout.addWidget(nf_group)
 
@@ -209,9 +221,6 @@ class AnalysisPanel(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.addWidget(scroll_area)
-
-        # Expand SWE by default
-        swe_group.toggle_collapsed()
 
         # Set size policy
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)

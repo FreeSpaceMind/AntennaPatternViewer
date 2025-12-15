@@ -7,10 +7,12 @@ from .data_display_widget import DataDisplayWidget
 from .file_manager_widget import FileManagerWidget
 from .plot_nearfield_widget import PlotNearFieldWidget
 
-# New icon sidebar navigation widgets
+# Icon sidebar navigation widgets
 from .icon_sidebar import IconSidebar
 from .pattern_strip import PatternStrip
 from .left_panel_widget import LeftPanelWidget
+from .view_panel import ViewPanel
+from .processing_panel import ProcessingPanel
 from .analysis_panel import AnalysisPanel
 
 __all__ = [
@@ -20,9 +22,11 @@ __all__ = [
     'PlotNearFieldWidget',
     'DataDisplayWidget',
     'FileManagerWidget',
-    # New widgets
+    # Icon sidebar navigation widgets
     'IconSidebar',
     'PatternStrip',
     'LeftPanelWidget',
+    'ViewPanel',
+    'ProcessingPanel',
     'AnalysisPanel',
 ]
