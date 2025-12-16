@@ -99,46 +99,57 @@ class PlotNearFieldWidget(QWidget):
         """Update the plot with selected component."""
         if self.near_field_data is None:
             return
-        
+
         self.figure.clear()
         ax = self.figure.add_subplot(111)
-        
+
         component = self.component_combo.currentText()
-        x = self.near_field_data['x']
-        y = self.near_field_data['y']
-        
+        is_spherical = self.near_field_data.get('is_spherical', True)
+
+        # Get coordinate arrays based on data type
+        if is_spherical:
+            x = self.near_field_data['phi']
+            y = self.near_field_data['theta']
+            xlabel = 'Phi (deg)'
+            ylabel = 'Theta (deg)'
+        else:
+            x = self.near_field_data['x']
+            y = self.near_field_data['y']
+            xlabel = 'X (m)'
+            ylabel = 'Y (m)'
+
         # Get field data
         if component == '|E|':
             # Total E-field magnitude
             E_mag_sq = 0
-            for key in ['E_x', 'E_y', 'E_z']:
+            for key in ['E_x', 'E_y', 'E_z', 'E_r', 'E_theta', 'E_phi']:
                 if key in self.near_field_data:
                     E_mag_sq += np.abs(self.near_field_data[key])**2
             field_data = np.sqrt(E_mag_sq)
         elif component == '|H|':
             # Total H-field magnitude
             H_mag_sq = 0
-            for key in ['H_x', 'H_y', 'H_z']:
+            for key in ['H_x', 'H_y', 'H_z', 'H_r', 'H_theta', 'H_phi']:
                 if key in self.near_field_data:
                     H_mag_sq += np.abs(self.near_field_data[key])**2
             field_data = np.sqrt(H_mag_sq)
         else:
             field_data = np.abs(self.near_field_data[component])
-        
+
         # Convert to dB
         magnitude_db = 20 * np.log10(field_data + 1e-10)
-        
-        im = ax.imshow(magnitude_db, 
+
+        im = ax.imshow(magnitude_db,
                       extent=[np.min(x), np.max(x), np.min(y), np.max(y)],
-                      cmap='jet', 
+                      cmap='jet',
                       aspect='equal',
                       origin='lower')
-        
-        ax.set_xlabel('X (m)')
-        ax.set_ylabel('Y (m)')
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
         ax.set_title(f'Near Field Pattern: {component}')
         self.figure.colorbar(im, ax=ax, label='Magnitude (dB)')
-        
+
         self.canvas.draw()
     
     def clear(self):

@@ -25,7 +25,7 @@ from PyQt6.QtCore import pyqtSignal
 from typing import Optional, Dict
 
 from .icon_sidebar import IconSidebar
-from .pattern_strip import PatternStrip
+from .pattern_list_widget import PatternListWidget
 from .view_panel import ViewPanel
 from .processing_panel import ProcessingPanel
 from .export_widget import ExportWidget
@@ -106,11 +106,11 @@ class LeftPanelWidget(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        # Pattern strip (optionally visible at top)
-        self.pattern_strip = None
+        # Pattern list (optionally visible at top)
+        self.pattern_list = None
         if self._show_pattern_strip:
-            self.pattern_strip = PatternStrip(self.data_model)
-            right_layout.addWidget(self.pattern_strip)
+            self.pattern_list = PatternListWidget(self.data_model)
+            right_layout.addWidget(self.pattern_list)
 
         # Stacked widget for panels
         self.panel_stack = QStackedWidget()
@@ -156,9 +156,9 @@ class LeftPanelWidget(QWidget):
         # Icon sidebar -> panel stack
         self.icon_sidebar.panel_changed.connect(self.panel_stack.setCurrentIndex)
 
-        # Pattern strip -> file dialog (only if pattern strip exists)
-        if self.pattern_strip is not None:
-            self.pattern_strip.add_pattern_requested.connect(self.open_file_dialog)
+        # Pattern list -> file dialog (only if pattern list exists)
+        if self.pattern_list is not None:
+            self.pattern_list.add_pattern_requested.connect(self.open_file_dialog)
 
         # View panel -> data model
         self.view_panel.parameters_changed.connect(self.on_view_params_changed)
@@ -175,6 +175,9 @@ class LeftPanelWidget(QWidget):
         # Analysis panel -> forward nearfield signal
         self.analysis_panel.nearfield_calculated.connect(self.nearfield_calculated.emit)
 
+        # Comparison set changes -> update view panel status
+        self.data_model.comparison_set_changed.connect(self.on_comparison_set_changed)
+
     # === VIEW PANEL HANDLERS ===
 
     def on_view_params_changed(self):
@@ -182,6 +185,12 @@ class LeftPanelWidget(QWidget):
         params = self.view_panel.get_current_parameters()
         self.data_model.update_view_params(params)
         self.data_model.view_parameters_changed.emit(params)
+
+    def on_comparison_set_changed(self, comparison_ids):
+        """Handle comparison set changes - update view panel status."""
+        compatibility = self.data_model.get_comparison_compatibility()
+        num_patterns = len(comparison_ids)
+        self.view_panel.update_comparison_status(num_patterns, compatibility)
 
     # === PROCESSING PANEL HANDLERS ===
 
@@ -195,10 +204,10 @@ class LeftPanelWidget(QWidget):
 
             if is_checked:
                 phase_center = [x, y, z]
-                self.data_model.set_phase_center_translation(phase_center, frequency)
+                self.data_model.set_phase_center_translation(phase_center)
                 logger.info(f"Phase center shift enabled: {phase_center}")
             else:
-                self.data_model.set_phase_center_translation(None, frequency)
+                self.data_model.set_phase_center_translation(None)
                 logger.info("Phase center shift disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
@@ -233,8 +242,13 @@ class LeftPanelWidget(QWidget):
         if self.data_model.pattern is None:
             return
 
+        # Skip if already at this polarization
+        if polarization == self.data_model.pattern.polarization:
+            return
+
         try:
-            pattern = self.data_model.pattern.convert_polarization(polarization)
+            pattern = self.data_model.pattern.copy()
+            pattern.assign_polarization(polarization)
             self.data_model._pattern = pattern
             self.data_model.pattern_modified.emit(pattern)
             self.data_model.processing_applied.emit("polarization_conversion")

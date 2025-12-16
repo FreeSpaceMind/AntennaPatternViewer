@@ -131,11 +131,13 @@ def plot_pattern_cut(
         if data_cx is not None:
             data_cx = data_cx - peak_value
     elif normalize and value_type == 'phase':
-        # Normalize first cut's phase to zero
+        # Normalize phase to boresight (theta=0)
         if phi_indices:
             ref_phi_idx = phi_indices[0]
             ref_freq_idx = frequency_indices[0]
-            ref_phase = data_co[ref_freq_idx, 0, ref_phi_idx]  # First theta point
+            # Find the theta index closest to boresight (theta=0)
+            boresight_idx = np.argmin(np.abs(theta_angles))
+            ref_phase = data_co[ref_freq_idx, boresight_idx, ref_phi_idx]
             data_co = data_co - ref_phase
             if data_cx is not None:
                 data_cx = data_cx - ref_phase
@@ -1302,12 +1304,14 @@ def plot_pattern_2d_polar(
         comp_label = component.replace('_', '-').upper()
         default_title = f'{comp_label} Phase at {selected_frequency/1e9:.2f} GHz'
 
-    # apply normalization if requested 
+    # apply normalization if requested
     if normalize and value_type == 'gain':
         peak_value = np.max(plot_data)
         plot_data = plot_data - peak_value
     elif normalize and value_type == 'phase':
-        ref_phase = plot_data[0, 0]  # First theta, first phi point
+        # Normalize phase to boresight (theta=0)
+        boresight_idx = np.argmin(np.abs(theta_angles))
+        ref_phase = plot_data[boresight_idx, 0]  # Boresight theta, first phi
         plot_data = plot_data - ref_phase
     
     # Create figure and axes if not provided

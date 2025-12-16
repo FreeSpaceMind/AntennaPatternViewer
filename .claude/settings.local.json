@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dir:*)",
       "Bash(python:*)",
-      "Bash(set PYTHONPATH=src:*)"
+      "Bash(set PYTHONPATH=src:*)",
+      "Bash(cmd /c \"set PYTHONPATH=src && python -c \"\"import sys; sys.path.insert(0, ''src''); from antenna_pattern_viewer.data_model import PatternDataModel; print(''Import successful'')\"\"\")"
     ],
     "deny": [],
     "ask": []

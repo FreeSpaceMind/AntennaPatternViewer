@@ -32,6 +32,12 @@ class Plot2DWidget(QWidget):
         self.data_model.pattern_loaded.connect(self.on_pattern_changed)
         self.data_model.pattern_modified.connect(self.on_pattern_changed)
         self.data_model.view_parameters_changed.connect(self.on_view_params_changed)
+        self.data_model.comparison_set_changed.connect(self.on_comparison_changed)
+
+    def on_comparison_changed(self, comparison_ids):
+        """Update plot when comparison set changes."""
+        if self.plot_widget.current_pattern is not None:
+            self.update_plot_from_model()
     
     def on_pattern_changed(self, pattern):
         """Update plot when pattern changes."""
@@ -58,20 +64,20 @@ class Plot2DWidget(QWidget):
         pattern = self.data_model.pattern
         if pattern is None:
             return
-        
+
         # Get view parameters from model
         params = self.data_model._view_params
-        
+
         # Extract parameters
         frequencies = params.get('selected_frequencies', [])
         phi_angles = params.get('selected_phi', [])
-        
+
         # If no selection, use defaults
         if not frequencies:
             frequencies = [pattern.frequencies[0]] if len(pattern.frequencies) > 0 else []
         if not phi_angles:
             phi_angles = [0]  # Default phi cut
-        
+
         plot_type = params.get('plot_type', '1d_cut')
         component = params.get('component', 'e_co')
         value_type = params.get('value_type', 'gain')
@@ -81,26 +87,64 @@ class Plot2DWidget(QWidget):
         show_range = params.get('show_range', True)
         statistic_type = params.get('statistic_type', 'mean')
         percentile_range = params.get('percentile_range', (25, 75))
-        
-        # Call plot widget's update_plot method
+
+        # Check for comparison patterns (only for 1D cuts, not statistics mode)
+        comparison_instances = self.data_model.get_comparison_instances()
+        enable_comparison = params.get('enable_comparison', True)
+
+        if (comparison_instances and enable_comparison and
+            plot_type == '1d_cut' and not statistics_enabled):
+            # Use multi-pattern comparison plotting
+            self._plot_comparison(
+                pattern, comparison_instances, frequencies, phi_angles,
+                value_type, show_cross_pol, unwrap_phase
+            )
+        else:
+            # Single pattern plotting (existing behavior)
+            try:
+                self.plot_widget.update_plot(
+                    pattern=pattern,
+                    frequencies=frequencies,
+                    phi_angles=phi_angles,
+                    value_type=value_type,
+                    show_cross_pol=show_cross_pol,
+                    unwrap_phase=unwrap_phase,
+                    plot_format=plot_type,
+                    component=component,
+                    statistics_enabled=statistics_enabled,
+                    show_range=show_range,
+                    statistic_type=statistic_type,
+                    percentile_range=percentile_range
+                )
+                self.plot_updated.emit()
+            except Exception as e:
+                print(f"Failed to update plot: {e}")
+
+    def _plot_comparison(self, active_pattern, comparison_instances, frequencies,
+                         phi_angles, value_type, show_cross_pol, unwrap_phase):
+        """Plot active pattern and comparison patterns together."""
+        # Build pattern list: active first, then comparison
+        patterns = [active_pattern]
+        active_instance = self.data_model.get_active_instance()
+        labels = [active_instance.display_name if active_instance else "Active"]
+
+        for inst in comparison_instances:
+            patterns.append(inst.pattern)
+            labels.append(inst.display_name)
+
         try:
-            self.plot_widget.update_plot(
-                pattern=pattern,
+            self.plot_widget.update_comparison_plot(
+                patterns=patterns,
+                labels=labels,
                 frequencies=frequencies,
                 phi_angles=phi_angles,
                 value_type=value_type,
                 show_cross_pol=show_cross_pol,
-                unwrap_phase=unwrap_phase,
-                plot_format=plot_type,
-                component=component,
-                statistics_enabled=statistics_enabled,
-                show_range=show_range,
-                statistic_type=statistic_type,
-                percentile_range=percentile_range
+                unwrap_phase=unwrap_phase
             )
             self.plot_updated.emit()
         except Exception as e:
-            print(f"Failed to update plot: {e}")
+            print(f"Failed to update comparison plot: {e}")
     
     def export_plot(self):
         """Export current plot to image file."""

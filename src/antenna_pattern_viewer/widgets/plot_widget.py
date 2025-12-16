@@ -15,7 +15,7 @@ from typing import Tuple, Optional, Any
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox, QLineEdit, QLabel
 from PyQt6.QtCore import pyqtSignal
 
-from ..plotting import plot_pattern_cut, plot_pattern_2d_polar
+from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
 
 
 class PlotWidget(QWidget):
@@ -273,6 +273,7 @@ class PlotWidget(QWidget):
                     value_type=value_type,
                     ax=self.ax,
                     unwrap_phase=unwrap_phase,
+                    normalize=self.normalize_check.isChecked(),
                     vmin=vmin,
                     vmax=vmax,
                 )
@@ -290,6 +291,7 @@ class PlotWidget(QWidget):
                     component=component,
                     ax=self.ax,
                     unwrap_phase=unwrap_phase,
+                    normalize=self.normalize_check.isChecked(),
                 )
 
             # Restore saved axis limits to preserve scale across data changes
@@ -320,6 +322,87 @@ class PlotWidget(QWidget):
             import traceback
             traceback.print_exc()
         
+        self.canvas.draw()
+
+    def update_comparison_plot(self, patterns, labels, frequencies, phi_angles,
+                               value_type, show_cross_pol, unwrap_phase=True):
+        """
+        Plot multiple patterns on the same axes for comparison.
+
+        Args:
+            patterns: List of FarFieldSpherical objects
+            labels: List of legend labels for each pattern
+            frequencies: List of frequencies to plot (applied to all patterns)
+            phi_angles: List of phi angles to plot (applied to all patterns)
+            value_type: Type of value to plot ('gain', 'phase', 'axial_ratio')
+            show_cross_pol: Whether to show cross-polarization
+            unwrap_phase: Whether to unwrap phase values
+        """
+        # Store current parameters (use first pattern as reference)
+        self.current_pattern = patterns[0] if patterns else None
+        self.current_frequencies = frequencies
+        self.current_phi_angles = phi_angles
+        self.current_value_type = value_type
+        self.current_show_cross_pol = show_cross_pol
+        self.current_unwrap_phase = unwrap_phase
+        self.current_plot_format = '1d_cut'  # Comparison only supports 1D cuts
+
+        # Update control labels for 1D plot
+        self.update_controls_for_plot_format(format_changing=False)
+
+        # Save current matplotlib axis limits before clearing
+        if self.figure.axes:
+            ax = self.figure.axes[0]
+            if not hasattr(ax, 'set_theta_zero_location'):  # Not polar
+                self.current_matplotlib_limits['1d_cut']['xlim'] = ax.get_xlim()
+                self.current_matplotlib_limits['1d_cut']['ylim'] = ax.get_ylim()
+
+        # Clear the current figure and create new axes
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111)
+
+        try:
+            # plot_multiple_patterns expects phi_angles as a list of lists (one per pattern)
+            # where each inner list contains the phi angles to plot for that pattern
+            # Same for frequencies - wrap in list per pattern
+            num_patterns = len(patterns)
+            phi_angles_per_pattern = [phi_angles] * num_patterns
+            freq_per_pattern = [frequencies[0] if frequencies else None] * num_patterns
+
+            # Use plot_multiple_patterns for comparison
+            plot_multiple_patterns(
+                patterns=patterns,
+                labels=labels,
+                frequencies=freq_per_pattern,
+                phi_angles=phi_angles_per_pattern,
+                show_cross_pol=show_cross_pol,
+                value_type=value_type,
+                unwrap_phase=unwrap_phase,
+                ax=self.ax
+            )
+
+            # Restore saved axis limits
+            limits = self.current_matplotlib_limits['1d_cut']
+            if limits['xlim']:
+                self.ax.set_xlim(limits['xlim'])
+            if limits['ylim']:
+                self.ax.set_ylim(limits['ylim'])
+
+            # Apply formatting
+            self.update_plot_formatting()
+
+        except Exception as e:
+            self.ax.clear()
+            self.ax.text(0.5, 0.5, f'Error plotting comparison:\n{str(e)}',
+                        ha='center', va='center', transform=self.ax.transAxes,
+                        fontsize=10, color='red')
+            self.ax.set_xlim(0, 1)
+            self.ax.set_ylim(0, 1)
+            self.ax.axis('off')
+            print(f"Comparison plotting error: {e}")
+            import traceback
+            traceback.print_exc()
+
         self.canvas.draw()
 
     def update_controls_for_plot_format(self, format_changing=False):

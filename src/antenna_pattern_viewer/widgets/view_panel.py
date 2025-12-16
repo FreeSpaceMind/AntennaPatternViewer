@@ -177,6 +177,24 @@ class ViewPanel(QWidget):
 
         layout.addWidget(stats_group)
 
+        # === PATTERN COMPARISON ===
+        comparison_group = QGroupBox("Pattern Comparison")
+        comparison_layout = QVBoxLayout(comparison_group)
+
+        # Enable comparison checkbox
+        self.enable_comparison = QCheckBox("Enable Multi-Pattern Plot")
+        self.enable_comparison.setChecked(True)
+        self.enable_comparison.setToolTip("Plot comparison patterns on the same axes")
+        self.enable_comparison.toggled.connect(self.parameters_changed.emit)
+        comparison_layout.addWidget(self.enable_comparison)
+
+        # Status label showing compatibility
+        self.comparison_status = QLabel("No patterns in comparison set")
+        self.comparison_status.setStyleSheet("color: gray; font-style: italic;")
+        comparison_layout.addWidget(self.comparison_status)
+
+        layout.addWidget(comparison_group)
+
         # Add stretch
         layout.addStretch()
 
@@ -203,6 +221,10 @@ class ViewPanel(QWidget):
             self.phi_list.clear()
             return
 
+        # Block signals during update to prevent index mismatch errors
+        self.frequency_list.blockSignals(True)
+        self.phi_list.blockSignals(True)
+
         self.current_pattern = pattern
 
         # Update frequency list
@@ -217,6 +239,11 @@ class ViewPanel(QWidget):
             self.phi_list.addItem(f"{phi:.1f}")
         self.phi_list.setCurrentRow(0)
 
+        # Re-enable signals and emit change
+        self.frequency_list.blockSignals(False)
+        self.phi_list.blockSignals(False)
+        self.parameters_changed.emit()
+
     def get_current_parameters(self):
         """Get current view parameters as a dictionary."""
         params = {
@@ -230,9 +257,32 @@ class ViewPanel(QWidget):
             'statistics_enabled': self.get_statistics_enabled(),
             'show_range': self.get_show_range(),
             'statistic_type': self.get_statistic_type(),
-            'percentile_range': self.get_percentile_range()
+            'percentile_range': self.get_percentile_range(),
+            'enable_comparison': self.enable_comparison.isChecked()
         }
         return params
+
+    def update_comparison_status(self, num_patterns: int, compatibility: dict):
+        """
+        Update comparison status display.
+
+        Args:
+            num_patterns: Number of patterns in comparison set
+            compatibility: Dict from data_model.get_comparison_compatibility()
+        """
+        if num_patterns == 0:
+            self.comparison_status.setText("No patterns in comparison set")
+            self.comparison_status.setStyleSheet("color: gray; font-style: italic;")
+        elif compatibility.get('compatible', False):
+            self.comparison_status.setText(f"{num_patterns} compatible pattern(s)")
+            self.comparison_status.setStyleSheet("color: green; font-style: normal;")
+        else:
+            common_freq = len(compatibility.get('common_frequencies', []))
+            common_phi = len(compatibility.get('common_phi', []))
+            self.comparison_status.setText(
+                f"{num_patterns} pattern(s) ({common_freq} common freq, {common_phi} common phi)"
+            )
+            self.comparison_status.setStyleSheet("color: orange; font-style: normal;")
 
     def select_all_frequencies(self):
         """Select all frequencies."""

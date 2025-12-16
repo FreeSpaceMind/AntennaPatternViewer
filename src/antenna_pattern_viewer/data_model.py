@@ -321,9 +321,57 @@ class PatternDataModel(QObject):
     
     def get_comparison_instances(self) -> List[PatternInstance]:
         """Get all instances in the comparison set."""
-        return [self._instances[iid] for iid in self._comparison_instance_ids 
+        return [self._instances[iid] for iid in self._comparison_instance_ids
                 if iid in self._instances]
-    
+
+    def get_comparison_compatibility(self) -> dict:
+        """
+        Check dimension compatibility between active and comparison patterns.
+
+        Returns:
+            dict with keys:
+                'compatible': bool - True if all patterns have identical dimensions
+                'common_frequencies': list - Frequencies present in all patterns
+                'common_phi': list - Phi angles present in all patterns
+                'num_comparison': int - Number of patterns in comparison set
+        """
+        active = self.get_active_instance()
+        comparison = self.get_comparison_instances()
+
+        if not active or not comparison:
+            return {
+                'compatible': False,
+                'common_frequencies': [],
+                'common_phi': [],
+                'num_comparison': len(comparison) if comparison else 0
+            }
+
+        # Get all patterns (active + comparison)
+        all_patterns = [active.pattern] + [c.pattern for c in comparison]
+
+        # Find common frequencies
+        freq_sets = [set(p.frequencies.tolist()) for p in all_patterns]
+        common_freqs = sorted(set.intersection(*freq_sets))
+
+        # Find common phi angles
+        phi_sets = [set(p.phi_angles.tolist()) for p in all_patterns]
+        common_phi = sorted(set.intersection(*phi_sets))
+
+        # Fully compatible if all dimensions match exactly
+        compatible = (
+            len(common_freqs) == len(all_patterns[0].frequencies) and
+            len(common_phi) == len(all_patterns[0].phi_angles) and
+            all(len(common_freqs) == len(p.frequencies) for p in all_patterns) and
+            all(len(common_phi) == len(p.phi_angles) for p in all_patterns)
+        )
+
+        return {
+            'compatible': compatible,
+            'common_frequencies': common_freqs,
+            'common_phi': common_phi,
+            'num_comparison': len(comparison)
+        }
+
     def update_view_params(self, params: Dict[str, Any]):
         """
         Update view parameters and emit signal.
