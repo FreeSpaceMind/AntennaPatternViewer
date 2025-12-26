@@ -264,12 +264,8 @@ class LeftPanelWidget(QWidget):
             return
 
         try:
-            if format_type == 'central':
-                pattern = self.data_model.pattern.to_central_coordinates()
-            else:
-                pattern = self.data_model.pattern.to_sided_coordinates()
-
-            self.data_model._pattern = pattern
+            self.data_model.pattern.transform_coordinates(format_type)
+            pattern = self.data_model.pattern
             self.data_model.pattern_modified.emit(pattern)
             self.data_model.processing_applied.emit("coordinate_conversion")
             self.processing_panel.on_pattern_loaded(pattern)

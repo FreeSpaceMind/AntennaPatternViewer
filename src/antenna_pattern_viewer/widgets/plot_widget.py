@@ -86,7 +86,14 @@ class PlotWidget(QWidget):
         self.normalize_check.setChecked(False)
         self.normalize_check.toggled.connect(self.replot_current_data)
         format_layout.addWidget(self.normalize_check)
-        
+
+        # Smooth checkbox (for 2D plots - bicubic interpolation)
+        self.smooth_check = QCheckBox("Smooth")
+        self.smooth_check.setChecked(False)
+        self.smooth_check.toggled.connect(self.replot_current_data)
+        self.smooth_check.setVisible(False)  # Initially hidden, shown only for 2D plots
+        format_layout.addWidget(self.smooth_check)
+
         # X-axis/Phi limits
         self.x_phi_label = QLabel("X-axis:")
         format_layout.addWidget(self.x_phi_label)
@@ -266,6 +273,7 @@ class PlotWidget(QWidget):
             # 2D polar plot
             elif plot_format == "2d_polar":
                 vmin, vmax = self.get_colorbar_limits()
+                interpolation = 'bicubic' if self.smooth_check.isChecked() else 'none'
                 fig, cbar = plot_pattern_2d_polar(
                     pattern=pattern,
                     frequency=frequencies,
@@ -274,6 +282,7 @@ class PlotWidget(QWidget):
                     ax=self.ax,
                     unwrap_phase=unwrap_phase,
                     normalize=self.normalize_check.isChecked(),
+                    interpolation=interpolation,
                     vmin=vmin,
                     vmax=vmax,
                 )
@@ -443,7 +452,10 @@ class PlotWidget(QWidget):
             self.z_min_edit.setVisible(True)
             self.z_to_label.setVisible(True)
             self.z_max_edit.setVisible(True)
-            
+
+            # Show smooth checkbox for 2D plots
+            self.smooth_check.setVisible(True)
+
             # Restore 2D axis limits (only when format is changing)
             if format_changing and hasattr(self, 'axis_limits_memory'):
                 self.restore_axis_limits('2d_polar')
@@ -482,7 +494,10 @@ class PlotWidget(QWidget):
             self.z_min_edit.setVisible(False)
             self.z_to_label.setVisible(False)
             self.z_max_edit.setVisible(False)
-            
+
+            # Hide smooth checkbox for 1D plots
+            self.smooth_check.setVisible(False)
+
             # Restore 1D axis limits (only when format is changing)
             if format_changing and hasattr(self, 'axis_limits_memory'):
                 self.restore_axis_limits('1d_cut')

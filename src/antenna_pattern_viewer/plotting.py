@@ -1185,7 +1185,9 @@ def plot_pattern_2d_polar(
     component: str = 'e_co',
     value_type: Literal['gain', 'phase', 'axial_ratio'] = 'gain',
     unwrap_phase: bool = True,
-    normalize: bool = False,  # Add this
+    normalize: bool = False,
+    interpolation: Literal['none', 'bicubic'] = 'none',
+    interpolation_factor: int = 4,
     ax: Optional[plt.Axes] = None,
     fig_size: Tuple[float, float] = (8, 8),
     title: Optional[str] = None,
@@ -1277,11 +1279,7 @@ def plot_pattern_2d_polar(
         selected_frequency = frequencies[0]
     else:
         selected_frequency, freq_idx = find_nearest(frequencies, frequency)
-    
-    # Create coordinate meshgrids
-    phi_rad = np.deg2rad(phi_angles)  # Convert phi to radians for polar plot
-    theta_mesh, phi_mesh = np.meshgrid(theta_angles, phi_rad, indexing='ij')
-    
+
     # Extract data based on value_type and component
     if value_type == 'axial_ratio':
         # Get axial ratio data [freq, theta, phi] 
@@ -1313,7 +1311,25 @@ def plot_pattern_2d_polar(
         boresight_idx = np.argmin(np.abs(theta_angles))
         ref_phase = plot_data[boresight_idx, 0]  # Boresight theta, first phi
         plot_data = plot_data - ref_phase
-    
+
+    # Apply bicubic interpolation if requested (for smoother plots)
+    if interpolation == 'bicubic':
+        from scipy.interpolate import RectBivariateSpline
+
+        # Create finer grids with interpolation_factor upsampling
+        theta_fine = np.linspace(theta_angles[0], theta_angles[-1],
+                                 len(theta_angles) * interpolation_factor)
+        phi_fine = np.linspace(phi_angles[0], phi_angles[-1],
+                               len(phi_angles) * interpolation_factor)
+
+        # Create cubic spline interpolator (kx=3, ky=3 for bicubic)
+        spline = RectBivariateSpline(theta_angles, phi_angles, plot_data, kx=3, ky=3)
+
+        # Interpolate data onto finer grid
+        plot_data = spline(theta_fine, phi_fine)
+        theta_angles = theta_fine
+        phi_angles = phi_fine
+
     # Create figure and axes if not provided
     if ax is None:
         fig, ax = plt.subplots(figsize=fig_size, subplot_kw=dict(projection='polar'))
@@ -1321,11 +1337,24 @@ def plot_pattern_2d_polar(
         fig = ax.figure
         if ax.name != 'polar':
             raise ValueError("Provided axes must have polar projection")
-    
+
+    # Convert phi to radians and add wraparound to close the polar circle
+    phi_rad = np.deg2rad(phi_angles)
+
+    # Append 360 degrees (2*pi radians) to close the circle seamlessly
+    phi_rad_wrapped = np.append(phi_rad, 2 * np.pi)
+
+    # Duplicate first phi column as last column to complete the wrap
+    plot_data_wrapped = np.hstack([plot_data, plot_data[:, 0:1]])
+
+    # Create coordinate meshgrids with wrapped phi
+    theta_mesh, phi_mesh = np.meshgrid(theta_angles, phi_rad_wrapped, indexing='ij')
+
     # Create the polar color plot
     # Note: pcolormesh expects (phi, theta) order for polar coordinates
-    im = ax.pcolormesh(phi_mesh.T, theta_mesh.T, plot_data.T, 
-                       cmap=cmap, vmin=vmin, vmax=vmax, shading='auto')
+    im = ax.pcolormesh(phi_mesh.T, theta_mesh.T, plot_data_wrapped.T,
+                       cmap=cmap, vmin=vmin, vmax=vmax, shading='auto',
+                       edgecolors='face', linewidth=0, rasterized=True)
     
     # Configure polar plot
     ax.set_theta_zero_location('N')  # Put phi=0 at top
@@ -1343,11 +1372,12 @@ def plot_pattern_2d_polar(
         title = default_title
     ax.set_title(title, pad=20)
     
-    # Add colorbar
+    # Add colorbar with improved formatting
     cbar = None
     if colorbar:
-        cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.1)
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.1, format='%.1f')
         cbar.set_label(f'{value_type.capitalize()} ({units})')
+        cbar.ax.tick_params(labelsize=9)
     
     # Adjust layout
     plt.tight_layout()
