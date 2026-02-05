@@ -225,10 +225,10 @@ class LeftPanelWidget(QWidget):
             is_checked = self.processing_panel.apply_mars_check.isChecked()
 
             if is_checked:
-                self.data_model.set_mars_processing(max_radial_extent)
+                self.data_model.set_mars(max_radial_extent)
                 logger.info(f"MARS enabled: max_extent={max_radial_extent}")
             else:
-                self.data_model.set_mars_processing(None)
+                self.data_model.set_mars(None)
                 logger.info("MARS disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
@@ -260,16 +260,13 @@ class LeftPanelWidget(QWidget):
 
     def on_coordinate_format_changed(self, format_type):
         """Handle coordinate format change."""
-        if self.data_model.pattern is None:
+        if self.data_model.original_pattern is None:
             return
 
         try:
-            self.data_model.pattern.transform_coordinates(format_type)
-            pattern = self.data_model.pattern
-            self.data_model.pattern_modified.emit(pattern)
-            self.data_model.processing_applied.emit("coordinate_conversion")
-            self.processing_panel.on_pattern_loaded(pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+            # Use the data model's processing state so all operations are applied in correct order
+            self.data_model.set_coordinate_format(format_type if format_type else None)
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
 
         except Exception as e:
             logger.error(f"Failed to convert coordinates: {e}")

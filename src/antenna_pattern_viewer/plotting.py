@@ -1247,31 +1247,41 @@ def plot_pattern_2d_polar(
     # Detect coordinate format and convert to sided for 2D polar plot
     theta_angles = plot_pattern.theta_angles
     phi_angles = plot_pattern.phi_angles
-    
+
     theta_min, theta_max = np.min(theta_angles), np.max(theta_angles)
     phi_min, phi_max = np.min(phi_angles), np.max(phi_angles)
-    
-    # Check if data is in central format (common for antenna measurements)
-    is_central = (theta_min < 0 or phi_max < 300)  # Simple heuristic for central data
-    is_sided = (theta_min >= 0 and theta_max <= 180 and phi_min >= 0 and phi_max > 300)
-    
+
+    # Detect coordinate format using robust heuristics:
+    # - Central format: theta spans negative to positive (e.g., -90 to 90), phi 0-180
+    # - Sided format: theta 0-180, phi 0-360
+    has_negative_theta = theta_min < -0.5  # Allow small tolerance
+    phi_covers_full_azimuth = phi_max > 300  # Phi spans most of 0-360
+    phi_is_half_azimuth = phi_max < 200 and phi_max > 150  # Phi spans ~0-180
+
+    # Pattern is in sided format if theta is non-negative and phi covers full azimuth
+    is_sided = (theta_min >= -0.5 and phi_covers_full_azimuth)
+
+    # Pattern is in central format if theta has negative values and phi is half-azimuth
+    is_central = (has_negative_theta and phi_is_half_azimuth)
+
     print(f"Pattern coordinate format detected:")
     print(f"  Theta range: {theta_min:.1f}° to {theta_max:.1f}°")
     print(f"  Phi range: {phi_min:.1f}° to {phi_max:.1f}°")
-    
-    # Convert to sided format for proper 2D visualization if needed
-    if not is_sided:
-        print("  Converting to sided format (0-180°, 0-360°) for 2D polar plot")
-        try:
-            plot_pattern.transform_coordinates('sided')
-            theta_angles = plot_pattern.theta_angles
-            phi_angles = plot_pattern.phi_angles
-            print(f"  Converted - Theta: {np.min(theta_angles):.1f}° to {np.max(theta_angles):.1f}°")
-            print(f"  Converted - Phi: {np.min(phi_angles):.1f}° to {np.max(phi_angles):.1f}°")
-        except Exception as e:
-            print(f"  Warning: Could not convert coordinates: {e}")
-            print("  Plotting with original coordinates")
-    
+    print(f"  Format: {'sided' if is_sided else 'central' if is_central else 'unknown'}")
+
+    # For central format patterns, remap to sided coordinates
+    # Central: theta from -max to +max, phi from 0 to ~180
+    # Sided: theta from 0 to max, phi from 0 to 360
+    # Mapping: sided(theta, phi) = central(theta, phi) for phi < 180
+    #          sided(theta, phi) = central(-theta, phi-180) for phi >= 180
+    central_format_remapped = False
+    if is_central and not is_sided:
+        print("  Remapping central format to sided coordinates")
+        central_format_remapped = True
+        # Store original coordinates for remapping
+        original_theta = theta_angles.copy()
+        original_phi = phi_angles.copy()
+
     # Handle frequency selection
     frequencies = plot_pattern.frequencies
     if frequency is None:
@@ -1312,6 +1322,105 @@ def plot_pattern_2d_polar(
         ref_phase = plot_data[boresight_idx, 0]  # Boresight theta, first phi
         plot_data = plot_data - ref_phase
 
+    # For central format, remap to sided coordinates
+    # The key mapping: sided(theta, phi) uses central(+theta, phi) for phi<180
+    #                  and central(-theta, phi-180) for phi>=180
+    if central_format_remapped:
+        n_data_theta, n_data_phi = plot_data.shape
+
+        # Verify dimensions match
+        if len(original_theta) != n_data_theta or len(original_phi) != n_data_phi:
+            print(f"  Warning: Dimension mismatch")
+            print(f"  Skipping remapping, using original coordinates")
+            central_format_remapped = False
+        else:
+            # Find theta=0 index in the original theta array
+            theta0_idx = np.argmin(np.abs(original_theta))
+
+            # New theta: only non-negative values [0, 1, 2, ..., max]
+            new_theta = original_theta[theta0_idx:]
+            n_new_theta = len(new_theta)
+
+            # New phi: [0, 1, ..., 179, 180, 181, ..., 359]
+            new_phi = np.concatenate([original_phi, original_phi + 180])
+            n_new_phi = len(new_phi)
+
+            # Build new data array
+            new_data = np.zeros((n_new_theta, n_new_phi))
+
+            # First half of phi (0 to ~179): data from positive theta
+            # new_data[i, :n_data_phi] = plot_data[theta0_idx + i, :]
+            new_data[:, :n_data_phi] = plot_data[theta0_idx:, :]
+
+            # Second half of phi (180 to ~359): data from negative theta
+            # For new_theta[i], we need central theta = -new_theta[i]
+            #
+            # IMPORTANT: Don't assume theta0_idx - i gives the correct negative theta!
+            # If theta=0 is not exactly in the array (e.g., 250 points from -15 to +15),
+            # the simple subtraction causes a 1-index offset. Instead, we explicitly
+            # find the negative theta that matches the magnitude of the positive theta.
+            #
+            # Physical interpretation: central(-theta, phi) represents the point
+            # that would be at (|theta|, phi+180) in sided format.
+            print(f"  theta0_idx={theta0_idx}, theta at idx={original_theta[theta0_idx]:.4f}°")
+
+            for i in range(n_new_theta):
+                # Get the positive theta value for this row
+                pos_theta_val = original_theta[theta0_idx + i]
+                # Find the index with matching negative theta magnitude
+                target_neg_theta = -abs(pos_theta_val)
+                neg_theta_idx = np.argmin(np.abs(original_theta - target_neg_theta))
+
+                if neg_theta_idx >= 0 and neg_theta_idx < n_data_theta:
+                    new_data[i, n_data_phi:] = plot_data[neg_theta_idx, :]
+                else:
+                    new_data[i, n_data_phi:] = plot_data[0, :]
+
+            # Debug: verify the magnitude matching
+            print(f"  Theta magnitude matching check:")
+            for i in [0, 1, 5, 10]:
+                if i < n_new_theta and theta0_idx + i < n_data_theta:
+                    pos_theta = original_theta[theta0_idx + i]
+                    target_neg = -abs(pos_theta)
+                    neg_idx = np.argmin(np.abs(original_theta - target_neg))
+                    actual_neg = original_theta[neg_idx]
+                    print(f"    row {i}: pos_theta={pos_theta:+.3f}°, matched neg_theta={actual_neg:+.3f}° (diff={abs(pos_theta)-abs(actual_neg):.4f}°)")
+
+            # Update variables for subsequent plotting code
+            theta_angles = new_theta
+            phi_angles = new_phi
+            plot_data = new_data
+            print(f"  Remapped - Theta: {np.min(theta_angles):.1f}° to {np.max(theta_angles):.1f}°")
+            print(f"  Remapped - Phi: {np.min(phi_angles):.1f}° to {np.max(phi_angles):.1f}°")
+
+    # Ensure phi_angles are sorted and data columns match the sorted order
+    phi_sort_idx = np.argsort(phi_angles)
+    phi_sorted = phi_angles[phi_sort_idx]
+    plot_data_sorted = plot_data[:, phi_sort_idx]
+
+    # Handle phi wrapping for seamless polar plot closure
+    # Check if phi already spans close to 0-360
+    phi_min, phi_max = phi_sorted[0], phi_sorted[-1]
+    phi_span = phi_max - phi_min
+
+    # Only attempt to close the circle if phi spans most of the azimuth (> 300°)
+    # For partial plots (like central format with phi 0-179°), don't force closure
+    if phi_span > 300:
+        if phi_max >= 359.99:
+            # Phi already includes 360°, no need to append
+            phi_wrapped = phi_sorted.copy()
+            plot_data_wrapped = plot_data_sorted.copy()
+        else:
+            # Append 360° with data from phi≈0 to close the circle
+            phi_wrapped = np.append(phi_sorted, 360.0)
+            # Find index closest to 0 degrees for the wrap data
+            idx_near_zero = np.argmin(np.abs(phi_sorted))
+            plot_data_wrapped = np.hstack([plot_data_sorted, plot_data_sorted[:, idx_near_zero:idx_near_zero+1]])
+    else:
+        # Partial phi coverage - don't try to close the circle
+        phi_wrapped = phi_sorted.copy()
+        plot_data_wrapped = plot_data_sorted.copy()
+
     # Apply bicubic interpolation if requested (for smoother plots)
     if interpolation == 'bicubic':
         from scipy.interpolate import RectBivariateSpline
@@ -1319,16 +1428,18 @@ def plot_pattern_2d_polar(
         # Create finer grids with interpolation_factor upsampling
         theta_fine = np.linspace(theta_angles[0], theta_angles[-1],
                                  len(theta_angles) * interpolation_factor)
-        phi_fine = np.linspace(phi_angles[0], phi_angles[-1],
-                               len(phi_angles) * interpolation_factor)
+        # Interpolate phi from 0 to 360 to maintain continuity
+        phi_fine = np.linspace(phi_wrapped[0], phi_wrapped[-1],
+                               len(phi_wrapped) * interpolation_factor)
 
         # Create cubic spline interpolator (kx=3, ky=3 for bicubic)
-        spline = RectBivariateSpline(theta_angles, phi_angles, plot_data, kx=3, ky=3)
+        # Use the wrapped data so spline knows about continuity at 0°/360°
+        spline = RectBivariateSpline(theta_angles, phi_wrapped, plot_data_wrapped, kx=3, ky=3)
 
         # Interpolate data onto finer grid
-        plot_data = spline(theta_fine, phi_fine)
+        plot_data_wrapped = spline(theta_fine, phi_fine)
         theta_angles = theta_fine
-        phi_angles = phi_fine
+        phi_wrapped = phi_fine
 
     # Create figure and axes if not provided
     if ax is None:
@@ -1338,14 +1449,8 @@ def plot_pattern_2d_polar(
         if ax.name != 'polar':
             raise ValueError("Provided axes must have polar projection")
 
-    # Convert phi to radians and add wraparound to close the polar circle
-    phi_rad = np.deg2rad(phi_angles)
-
-    # Append 360 degrees (2*pi radians) to close the circle seamlessly
-    phi_rad_wrapped = np.append(phi_rad, 2 * np.pi)
-
-    # Duplicate first phi column as last column to complete the wrap
-    plot_data_wrapped = np.hstack([plot_data, plot_data[:, 0:1]])
+    # Convert wrapped phi to radians for polar plotting
+    phi_rad_wrapped = np.deg2rad(phi_wrapped)
 
     # Create coordinate meshgrids with wrapped phi
     theta_mesh, phi_mesh = np.meshgrid(theta_angles, phi_rad_wrapped, indexing='ij')

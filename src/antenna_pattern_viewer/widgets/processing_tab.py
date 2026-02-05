@@ -198,6 +198,7 @@ class ProcessingTab(QWidget):
         # Apply theta shift checkbox
         self.apply_theta_shift_check = QCheckBox("Apply Theta Origin Shift")
         self.apply_theta_shift_check.toggled.connect(self.on_apply_theta_shift_toggled)
+        self.theta_shift_spin.valueChanged.connect(self.on_theta_shift_value_changed)
         origin_group.addWidget(self.apply_theta_shift_check)
 
         # Phi origin shift
@@ -214,6 +215,7 @@ class ProcessingTab(QWidget):
         # Apply phi shift checkbox
         self.apply_phi_shift_check = QCheckBox("Apply Phi Origin Shift")
         self.apply_phi_shift_check.toggled.connect(self.on_apply_phi_shift_toggled)
+        self.phi_shift_spin.valueChanged.connect(self.on_phi_shift_value_changed)
         origin_group.addWidget(self.apply_phi_shift_check)
 
         layout.addWidget(origin_group)
@@ -397,17 +399,31 @@ class ProcessingTab(QWidget):
         """Handle apply theta shift checkbox toggle."""
         if not self.current_pattern:
             return
-        
+
         theta_offset = self.theta_shift_spin.value()
         self.shift_theta_origin_signal.emit(theta_offset)
+
+    def on_theta_shift_value_changed(self, value):
+        """Handle theta shift spinbox value change."""
+        if not self.current_pattern:
+            return
+        if self.apply_theta_shift_check.isChecked():
+            self.shift_theta_origin_signal.emit(value)
 
     def on_apply_phi_shift_toggled(self, checked):
         """Handle apply phi shift checkbox toggle."""
         if not self.current_pattern:
             return
-        
+
         phi_offset = self.phi_shift_spin.value()
         self.shift_phi_origin_signal.emit(phi_offset)
+
+    def on_phi_shift_value_changed(self, value):
+        """Handle phi shift spinbox value change."""
+        if not self.current_pattern:
+            return
+        if self.apply_phi_shift_check.isChecked():
+            self.shift_phi_origin_signal.emit(value)
 
     def on_apply_normalization_toggled(self, checked):
         """Handle apply normalization checkbox toggle."""
