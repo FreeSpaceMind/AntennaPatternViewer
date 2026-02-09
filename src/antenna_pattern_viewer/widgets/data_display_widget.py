@@ -56,13 +56,31 @@ class DataDisplayWidget(QWidget):
             return
         
         # Display pattern info
+        # Handle both uniform and non-uniform theta patterns
+        if pattern.has_uniform_theta:
+            theta_info = (
+                f"<b>Theta Points:</b> {len(pattern.theta_angles)}<br>"
+                f"<b>Theta Range:</b> {pattern.theta_angles.min():.1f}° - "
+                f"{pattern.theta_angles.max():.1f}°<br>"
+            )
+        else:
+            # Non-uniform theta (per-phi grids)
+            theta_grid = pattern.theta_grid
+            n_theta = theta_grid.shape[0]
+            # Get min/max across all phi cuts
+            theta_min = theta_grid.min()
+            theta_max = theta_grid.max()
+            theta_info = (
+                f"<b>Theta Points:</b> {n_theta} (per-phi)<br>"
+                f"<b>Theta Range:</b> {theta_min:.1f}° - {theta_max:.1f}°<br>"
+                f"<b>Note:</b> <i>Non-uniform theta grid</i><br>"
+            )
+
         info_text = (
             f"<b>Frequencies:</b> {len(pattern.frequencies)}<br>"
             f"<b>Frequency Range:</b> {pattern.frequencies.min()/1e9:.3f} - "
             f"{pattern.frequencies.max()/1e9:.3f} GHz<br>"
-            f"<b>Theta Points:</b> {len(pattern.theta_angles)}<br>"
-            f"<b>Theta Range:</b> {pattern.theta_angles.min():.1f}° - "
-            f"{pattern.theta_angles.max():.1f}°<br>"
+            f"{theta_info}"
             f"<b>Phi Points:</b> {len(pattern.phi_angles)}<br>"
             f"<b>Phi Range:</b> {pattern.phi_angles.min():.1f}° - "
             f"{pattern.phi_angles.max():.1f}°<br>"

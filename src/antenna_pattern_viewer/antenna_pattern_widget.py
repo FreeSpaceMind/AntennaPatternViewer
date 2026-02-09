@@ -162,11 +162,17 @@ class AntennaPatternWidget(QMainWindow):
         """Handle pattern loaded event."""
         if pattern is not None:
             n_freq = len(pattern.frequencies)
-            n_theta = len(pattern.theta_angles)
+            # Handle both uniform and non-uniform theta patterns
+            if pattern.has_uniform_theta:
+                n_theta = len(pattern.theta_angles)
+                theta_info = f"{n_theta}"
+            else:
+                n_theta = pattern.theta_grid.shape[0]
+                theta_info = f"{n_theta} (per-phi)"
             n_phi = len(pattern.phi_angles)
             pol = pattern.polarization
 
-            msg = f"Pattern loaded: {n_freq} freq, {n_theta}x{n_phi} points, {pol} pol"
+            msg = f"Pattern loaded: {n_freq} freq, {theta_info}x{n_phi} points, {pol} pol"
             self.status_message.emit(msg)
 
     def on_nearfield_calculated(self, near_field_data):

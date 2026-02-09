@@ -145,8 +145,13 @@ class ExportWidget(QWidget):
 
                 # Extract single frequency using data slicing
                 freq_value = pattern.frequencies[freq_idx]
+                # Handle both uniform and non-uniform theta patterns
+                if pattern.has_uniform_theta:
+                    theta_param = pattern.theta_angles
+                else:
+                    theta_param = pattern.theta_grid
                 pattern = FarFieldSpherical(
-                    theta=pattern.theta_angles,
+                    theta=theta_param,
                     phi=pattern.phi_angles,
                     frequency=np.array([freq_value]),
                     e_theta=pattern.data.e_theta.values[freq_idx:freq_idx+1, :, :],

@@ -23,7 +23,7 @@ from pathlib import Path
 import time
 import os
 
-from farfield_spherical import read_cut, read_ffd, load_pattern_npz
+from farfield_spherical import read_cut, read_ffd, load_pattern_npz, read_atams
 from ..pattern_instance import PatternInstance
 
 
@@ -69,6 +69,49 @@ class CutFileDialog(QDialog):
             self.freq_start_spin.value() * 1e9,
             self.freq_end_spin.value() * 1e9
         )
+
+
+class AtamsFileDialog(QDialog):
+    """Dialog for ATAMS file import options."""
+
+    def __init__(self, filename, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Import {filename}")
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtWidgets import QCheckBox
+
+        layout = QFormLayout(self)
+
+        # Info label
+        info = QLabel(
+            "ATAMS files contain per-phi theta grids (non-uniform).\n"
+            "You can optionally interpolate to a uniform grid."
+        )
+        info.setWordWrap(True)
+        layout.addRow(info)
+
+        # Interpolate checkbox
+        self.interpolate_check = QCheckBox("Interpolate to uniform theta grid")
+        self.interpolate_check.setToolTip(
+            "If checked, interpolates to the nominal azimuth values from the file header.\n"
+            "If unchecked, preserves the actual measured positions (per-phi theta grids)."
+        )
+        layout.addRow(self.interpolate_check)
+
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def get_interpolate(self):
+        """Return whether to interpolate to uniform grid."""
+        return self.interpolate_check.isChecked()
 
 
 class PathBreadcrumb(QWidget):
@@ -162,8 +205,8 @@ class FileManagerWidget(QWidget):
     MAX_RECENT_FILES = 10
     MAX_RECENT_LOCATIONS = 5
 
-    SUPPORTED_EXTENSIONS = ["*.cut", "*.ffd", "*.npz", "*.sph"]
-    FILE_FILTER = "Pattern Files (*.cut *.ffd *.npz *.sph);;All Files (*)"
+    SUPPORTED_EXTENSIONS = ["*.cut", "*.ffd", "*.npz", "*.sph", "*.atams"]
+    FILE_FILTER = "Pattern Files (*.cut *.ffd *.npz *.sph *.atams);;All Files (*)"
 
     def __init__(self, data_model, parent=None):
         super().__init__(parent)
@@ -467,6 +510,14 @@ class FileManagerWidget(QWidget):
                 swe = read_ticra_sph(str(file_path))
                 pattern = create_pattern_from_swe(swe)
 
+            elif suffix == '.atams':
+                dialog = AtamsFileDialog(file_path.name, self)
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    interpolate = dialog.get_interpolate()
+                    pattern = read_atams(str(file_path), interpolate=interpolate)
+                else:
+                    return
+
             else:
                 raise ValueError(f"Unsupported file format: {suffix}")
 
@@ -614,7 +665,8 @@ class FileManagerWidget(QWidget):
                 '.cut': 'GRASP cut file',
                 '.ffd': 'NSI far-field data',
                 '.npz': 'NumPy pattern archive',
-                '.sph': 'TICRA spherical wave expansion'
+                '.sph': 'TICRA spherical wave expansion',
+                '.atams': 'ATAMS measurement file'
             }
             file_type = ext_info.get(file_path.suffix.lower(), 'Unknown type')
 
@@ -663,7 +715,7 @@ class FileManagerWidget(QWidget):
             for url in event.mimeData().urls():
                 if url.isLocalFile():
                     path = Path(url.toLocalFile())
-                    if path.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph']:
+                    if path.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph', '.atams']:
                         event.acceptProposedAction()
                         return
         event.ignore()
@@ -673,7 +725,7 @@ class FileManagerWidget(QWidget):
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 path = Path(url.toLocalFile())
-                if path.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph']:
+                if path.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph', '.atams']:
                     self.load_pattern_file(path)
         event.acceptProposedAction()
 

@@ -84,7 +84,13 @@ def plot_pattern_cut(
             selected_phi.append(nearest_phi)
     
     # Get data arrays based on value_type
-    theta_angles = pattern.theta_angles
+    # For non-uniform theta patterns, we'll get theta per-phi when plotting
+    has_uniform_theta = pattern.has_uniform_theta
+    if has_uniform_theta:
+        theta_angles = pattern.theta_angles
+    else:
+        # Will get theta per phi cut during plotting
+        theta_angles = None
 
     # Determine which component to use
     # For e_co, cross-pol is e_cx; for e_theta, cross-pol is e_phi, etc.
@@ -136,7 +142,12 @@ def plot_pattern_cut(
             ref_phi_idx = phi_indices[0]
             ref_freq_idx = frequency_indices[0]
             # Find the theta index closest to boresight (theta=0)
-            boresight_idx = np.argmin(np.abs(theta_angles))
+            if has_uniform_theta:
+                boresight_idx = np.argmin(np.abs(theta_angles))
+            else:
+                # For non-uniform theta, use the theta array for this phi cut
+                phi_theta = pattern.get_theta_for_phi(ref_phi_idx)
+                boresight_idx = np.argmin(np.abs(phi_theta))
             ref_phase = data_co[ref_freq_idx, boresight_idx, ref_phi_idx]
             data_co = data_co - ref_phase
             if data_cx is not None:
@@ -154,33 +165,39 @@ def plot_pattern_cut(
     if num_lines > 8:
         # Use color cycle for frequencies
         color_cycle = plt.cm.tab10(np.linspace(0, 1, len(frequency_indices)))
-        
+
         # Plot with frequency-grouped colors
         for i, freq_idx in enumerate(frequency_indices):
             freq_value = selected_frequencies[i]
             color = color_cycle[i % len(color_cycle)]
-            
+
             # Group by frequency - plot all phi angles with same color
             for phi_idx in phi_indices:
+                # Get theta array for this phi (per-phi for non-uniform, shared for uniform)
+                if has_uniform_theta:
+                    phi_theta = theta_angles
+                else:
+                    phi_theta = pattern.get_theta_for_phi(phi_idx)
+
                 # Plot co-pol
                 if value_type == 'axial_ratio':
                     label = f"{freq_value/1e6:.1f} MHz" if phi_idx == phi_indices[0] else None
                 else:
                     label = f"{freq_value/1e6:.1f} MHz (co-pol)" if phi_idx == phi_indices[0] else None
-                
+
                 ax.plot(
-                    theta_angles,
+                    phi_theta,
                     data_co[freq_idx, :, phi_idx],
                     co_pol_style,
                     color=color,
                     alpha=0.8,
                     label=label
                 )
-                
+
                 # Plot cross-pol
                 if show_cross_pol and data_cx is not None:
                     ax.plot(
-                        theta_angles,
+                        phi_theta,
                         data_cx[freq_idx, :, phi_idx],
                         cx_pol_style,
                         color=color,
@@ -190,39 +207,45 @@ def plot_pattern_cut(
     else:
         # Less than 8 lines, use a color per phi angle
         color_cycle = plt.cm.tab10(np.linspace(0, 1, len(phi_indices)))
-        
+
         # Plot with detailed labels
         for i, freq_idx in enumerate(frequency_indices):
             freq_value = selected_frequencies[i]
-            
+
             for j, phi_idx in enumerate(phi_indices):
                 phi_value = selected_phi[j]
                 color = color_cycle[j % len(color_cycle)]
-                
+
+                # Get theta array for this phi (per-phi for non-uniform, shared for uniform)
+                if has_uniform_theta:
+                    phi_theta = theta_angles
+                else:
+                    phi_theta = pattern.get_theta_for_phi(phi_idx)
+
                 # Create labels based on value type and frequencies
                 if len(frequency_indices) > 1:
                     label = f"φ={phi_value:.1f}°, f={freq_value/1e6:.1f} MHz"
                 else:
                     label = f"φ={phi_value:.1f}°"
-                
+
                 # Plot co-pol
                 ax.plot(
-                    theta_angles,
+                    phi_theta,
                     data_co[freq_idx, :, phi_idx],
                     co_pol_style,
                     color=color,
                     label=label
                 )
-                
+
                 # Plot cross-pol if enabled and not axial ratio
                 if show_cross_pol and data_cx is not None:
                     if len(frequency_indices) > 1:
                         cx_label = f"φ={phi_value:.1f}°, f={freq_value/1e6:.1f} MHz (cross)"
                     else:
                         cx_label = f"φ={phi_value:.1f}° (cross)"
-                    
+
                     ax.plot(
-                        theta_angles,
+                        phi_theta,
                         data_cx[freq_idx, :, phi_idx],
                         cx_pol_style,
                         color=color,
@@ -341,9 +364,13 @@ def plot_multiple_patterns(
     # Process each pattern
     for i, (pattern, label, color, freq, phi) in enumerate(
             zip(patterns, labels, colors, frequencies, phi_angles)):
-        
+
         # Get data arrays based on value_type from pattern
-        theta_angles = pattern.theta_angles
+        has_uniform_theta = pattern.has_uniform_theta
+        if has_uniform_theta:
+            theta_angles = pattern.theta_angles
+        else:
+            theta_angles = None  # Will get per-phi
         
         # Select frequency
         if freq is None:
@@ -370,15 +397,19 @@ def plot_multiple_patterns(
             # Apply phase normalization if requested
             if normalize_phase is not False:
                 # boresight (theta=0) and first phi angle
-                ref_theta_idx = np.argmin(np.abs(theta_angles))
                 ref_phi_idx = 0
-                
+                if has_uniform_theta:
+                    ref_theta_idx = np.argmin(np.abs(theta_angles))
+                else:
+                    phi_theta = pattern.get_theta_for_phi(ref_phi_idx)
+                    ref_theta_idx = np.argmin(np.abs(phi_theta))
+
                 # Get reference phase at the specified point
                 ref_phase_co = co_pol_data[ref_theta_idx, ref_phi_idx]
-                
+
                 # Normalize co-pol data
                 co_pol_data = co_pol_data - ref_phase_co
-                
+
                 # Normalize cross-pol data if present
                 if show_cross_pol:
                     ref_phase_cx = cx_pol_data[ref_theta_idx, ref_phi_idx]
@@ -397,36 +428,42 @@ def plot_multiple_patterns(
                 phi_val, phi_idx_actual = find_nearest(pattern.phi_angles, phi_val)
             else:
                 phi_idx_actual = np.where(pattern.phi_angles == phi_val)[0][0]
-            
+
+            # Get theta array for this phi cut
+            if has_uniform_theta:
+                phi_theta = theta_angles
+            else:
+                phi_theta = pattern.get_theta_for_phi(phi_idx_actual)
+
             line_label = label
-                
+
             # Only first phi angle gets a label
             if phi_idx > 0:
                 line_label = "_nolegend_"
-                
+
             co_line = ax.plot(
-                theta_angles, 
+                phi_theta,
                 co_pol_data[:, phi_idx_actual],
                 '-',  # Solid line for co-pol
                 color=color,
                 label=line_label
             )[0]
-            
+
             # Add to legend handles for first phi angle
             if phi_idx == 0:
                 # Add to custom legend
                 legend_handles.append(co_line)
-            
+
             # Plot cross-pol if enabled
             if show_cross_pol:
                 cx_line = ax.plot(
-                    theta_angles,
+                    phi_theta,
                     cx_pol_data[:, phi_idx_actual],
                     '--',  # Dashed line for cross-pol
                     color=color,
                     label=f"{label} (cross-pol)" if phi_idx == 0 else "_nolegend_"
                 )[0]
-                
+
                 # Add to legend handles for first phi angle
                 if phi_idx == 0:
                     legend_handles.append(cx_line)
@@ -509,7 +546,17 @@ def plot_pattern_difference(
     valid_types = ['co_gain', 'cx_gain', 'axial_ratio', 'co_phase', 'cx_phase']
     if value_type not in valid_types:
         raise ValueError(f"Invalid value_type: {value_type}. Must be one of {valid_types}")
-    
+
+    # Auto-convert non-uniform theta patterns to uniform for comparison
+    if not pattern1.has_uniform_theta:
+        import warnings
+        warnings.warn("Pattern 1 has non-uniform theta. Auto-converting to uniform grid.")
+        pattern1 = pattern1.to_uniform_theta()
+    if not pattern2.has_uniform_theta:
+        import warnings
+        warnings.warn("Pattern 2 has non-uniform theta. Auto-converting to uniform grid.")
+        pattern2 = pattern2.to_uniform_theta()
+
     # Check if patterns have compatible dimensions
     if not np.array_equal(pattern1.theta_angles, pattern2.theta_angles):
         raise ValueError("Patterns have different theta angles. Cannot compute difference.")
@@ -692,7 +739,13 @@ def plot_pattern_statistics(
         fig, ax = plt.subplots(figsize=fig_size)
     else:
         fig = ax.figure
-    
+
+    # Auto-convert non-uniform theta patterns to uniform for statistics
+    if not pattern.has_uniform_theta:
+        import warnings
+        warnings.warn("Pattern has non-uniform theta. Auto-converting to uniform grid for statistics.")
+        pattern = pattern.to_uniform_theta()
+
     # Get theta angles for the x-axis
     theta = pattern.theta_angles
     
@@ -1090,16 +1143,22 @@ def plot_phase_slope_vs_frequency(pattern, theta: float = 0.0, phi: float = 0.0,
     """
     if len(pattern.frequencies) < 2:
         raise ValueError("Pattern must have at least 2 frequencies")
-    
+
     # Create figure if not provided
     if ax is None:
         fig, ax = plt.subplots(figsize=fig_size)
     else:
         fig = ax.figure
-    
-    # Find nearest angles
-    theta_val, theta_idx = find_nearest(pattern.theta_angles, theta)
+
+    # Find nearest phi first
     phi_val, phi_idx = find_nearest(pattern.phi_angles, phi)
+
+    # Find nearest theta (using per-phi theta for non-uniform patterns)
+    if pattern.has_uniform_theta:
+        theta_val, theta_idx = find_nearest(pattern.theta_angles, theta)
+    else:
+        phi_theta = pattern.get_theta_for_phi(phi_idx)
+        theta_val, theta_idx = find_nearest(phi_theta, theta)
     
     frequencies = pattern.frequencies
     
@@ -1240,9 +1299,15 @@ def plot_pattern_2d_polar(
     # Special case: axial ratio only works with co/cx components
     if value_type == 'axial_ratio' and component not in ['e_co', 'e_cx']:
         raise ValueError("Axial ratio plotting requires component to be 'e_co' or 'e_cx'")
-    
+
     # Create a working copy of the pattern to avoid modifying the original
     plot_pattern = pattern.copy()
+
+    # Auto-convert non-uniform theta patterns to uniform for 2D polar plot
+    if not plot_pattern.has_uniform_theta:
+        import warnings
+        warnings.warn("Pattern has non-uniform theta. Auto-converting to uniform grid for 2D polar plot.")
+        plot_pattern = plot_pattern.to_uniform_theta()
     
     # Detect coordinate format and convert to sided for 2D polar plot
     theta_angles = plot_pattern.theta_angles

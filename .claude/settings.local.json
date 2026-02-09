@@ -4,7 +4,12 @@
       "Bash(dir:*)",
       "Bash(python:*)",
       "Bash(set PYTHONPATH=src:*)",
-      "Bash(cmd /c \"set PYTHONPATH=src && python -c \"\"import sys; sys.path.insert(0, ''src''); from antenna_pattern_viewer.data_model import PatternDataModel; print(''Import successful'')\"\"\")"
+      "Bash(cmd /c \"set PYTHONPATH=src && python -c \"\"import sys; sys.path.insert(0, ''src''); from antenna_pattern_viewer.data_model import PatternDataModel; print(''Import successful'')\"\"\")",
+      "Bash(cmd /c \"set PYTHONPATH=src && python -c \"\"from antenna_pattern_viewer.widgets.processing_panel import ProcessingPanel; from antenna_pattern_viewer.widgets.processing_tab import ProcessingTab; print\\(''Imports successful''\\)\"\"\")",
+      "Bash(findstr:*)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\justin.long\\\\Documents\\\\Python\\\\AntennaPatternViewer\" -Recurse -Name \"*.py\")",
+      "Bash(Select-String -Pattern \"farfield\")",
+      "Bash(pip show:*)"
     ],
     "deny": [],
     "ask": []
