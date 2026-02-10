@@ -23,12 +23,14 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 from typing import Optional, Dict
+import time
 
 from .icon_sidebar import IconSidebar
 from .pattern_list_widget import PatternListWidget
 from .view_panel import ViewPanel
 from .processing_panel import ProcessingPanel
 from .export_widget import ExportWidget
+from ..pattern_instance import PatternInstance
 
 import logging
 logger = logging.getLogger(__name__)
@@ -171,6 +173,8 @@ class LeftPanelWidget(QWidget):
         self.processing_panel.shift_theta_origin_signal.connect(self.on_shift_theta_origin)
         self.processing_panel.shift_phi_origin_signal.connect(self.on_shift_phi_origin)
         self.processing_panel.normalize_amplitude_signal.connect(self.on_normalize_amplitude)
+        self.processing_panel.split_spheres_signal.connect(self.on_split_spheres)
+        self.processing_panel.average_spheres_signal.connect(self.on_average_spheres)
 
         # Analysis panel -> forward nearfield signal
         self.analysis_panel.nearfield_calculated.connect(self.nearfield_calculated.emit)
@@ -333,6 +337,73 @@ class LeftPanelWidget(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to toggle amplitude normalization: {e}", exc_info=True)
+
+    # === DUAL SPHERE HANDLERS ===
+
+    def on_split_spheres(self):
+        """Handle dual sphere split request. Uses the processed pattern."""
+        instance = self.data_model.get_active_instance()
+        if instance is None or self.data_model.pattern is None:
+            return
+
+        try:
+            from farfield_spherical import split_dual_sphere
+            sphere1, sphere2 = split_dual_sphere(self.data_model.pattern)
+
+            base_name = instance.display_name
+            if '.' in base_name:
+                base_name = base_name.rsplit('.', 1)[0]
+
+            instance1 = PatternInstance(
+                pattern=sphere1,
+                source_file=instance.source_file,
+                display_name=f"{base_name}_sphere1",
+                load_timestamp=time.time(),
+                processing_history=['split_dual_sphere:sphere1'],
+            )
+            instance2 = PatternInstance(
+                pattern=sphere2,
+                source_file=instance.source_file,
+                display_name=f"{base_name}_sphere2",
+                load_timestamp=time.time(),
+                processing_history=['split_dual_sphere:sphere2'],
+            )
+
+            self.data_model.add_instance(instance1)
+            self.data_model.add_instance(instance2)
+            logger.info(f"Split dual sphere: {base_name}")
+
+        except Exception as e:
+            logger.error(f"Failed to split spheres: {e}", exc_info=True)
+
+    def on_average_spheres(self):
+        """Handle dual sphere average request. Uses the processed pattern."""
+        instance = self.data_model.get_active_instance()
+        if instance is None or self.data_model.pattern is None:
+            return
+
+        try:
+            from farfield_spherical import split_dual_sphere, average_patterns
+            sphere1, sphere2 = split_dual_sphere(self.data_model.pattern)
+            averaged = average_patterns([sphere1, sphere2])
+
+            base_name = instance.display_name
+            if '.' in base_name:
+                base_name = base_name.rsplit('.', 1)[0]
+
+            avg_instance = PatternInstance(
+                pattern=averaged,
+                source_file=instance.source_file,
+                display_name=f"{base_name}_averaged",
+                load_timestamp=time.time(),
+                processing_history=['dual_sphere_average'],
+            )
+
+            self.data_model.add_instance(avg_instance)
+            logger.info(f"Averaged dual spheres: {base_name}")
+
+        except Exception as e:
+            logger.error(f"Failed to average spheres: {e}", exc_info=True)
 
     # === FILE OPERATIONS ===
 

@@ -25,6 +25,8 @@ class ProcessingPanel(QWidget):
     shift_theta_origin_signal = pyqtSignal(float)  # theta_offset in degrees
     shift_phi_origin_signal = pyqtSignal(float)  # phi_offset in degrees
     normalize_amplitude_signal = pyqtSignal(str)  # normalization type
+    split_spheres_signal = pyqtSignal()
+    average_spheres_signal = pyqtSignal()
 
     def __init__(self, data_model, parent=None):
         super().__init__(parent)
@@ -76,6 +78,37 @@ class ProcessingPanel(QWidget):
         coord_layout.addWidget(desc_label)
 
         layout.addWidget(coord_group)
+
+        # === DUAL SPHERE ===
+        ds_group = QGroupBox("Dual Sphere")
+        ds_layout = QVBoxLayout(ds_group)
+
+        self.dual_sphere_status = QLabel("No pattern loaded")
+        self.dual_sphere_status.setStyleSheet("font-size: 9pt; color: #666;")
+        self.dual_sphere_status.setWordWrap(True)
+        ds_layout.addWidget(self.dual_sphere_status)
+
+        btn_row = QHBoxLayout()
+        self.split_spheres_btn = QPushButton("Split Spheres")
+        self.split_spheres_btn.setToolTip(
+            "Split into two patterns: phi 0-180 and phi 180-360 remapped to 0-180"
+        )
+        self.split_spheres_btn.setEnabled(False)
+        self.split_spheres_btn.clicked.connect(self._on_split_spheres)
+        btn_row.addWidget(self.split_spheres_btn)
+
+        self.average_spheres_btn = QPushButton("Average Spheres")
+        self.average_spheres_btn.setToolTip(
+            "Split and average the two spheres into a single pattern"
+        )
+        self.average_spheres_btn.setEnabled(False)
+        self.average_spheres_btn.clicked.connect(self._on_average_spheres)
+        btn_row.addWidget(self.average_spheres_btn)
+
+        btn_row.addStretch()
+        ds_layout.addLayout(btn_row)
+
+        layout.addWidget(ds_group)
 
         # === AMPLITUDE NORMALIZATION ===
         norm_group = QGroupBox("Amplitude Normalization")
@@ -275,6 +308,9 @@ class ProcessingPanel(QWidget):
         except Exception:
             pass
 
+        # Update dual sphere detection
+        self._update_dual_sphere_status(pattern)
+
         self.update_processing_controls_state()
 
     def update_processing_controls_state(self):
@@ -286,6 +322,10 @@ class ProcessingPanel(QWidget):
         self.apply_theta_shift_check.setEnabled(has_pattern)
         self.apply_phi_shift_check.setEnabled(has_pattern)
         self.apply_normalization_check.setEnabled(has_pattern)
+        if not has_pattern:
+            self.split_spheres_btn.setEnabled(False)
+            self.average_spheres_btn.setEnabled(False)
+            self.dual_sphere_status.setText("No pattern loaded")
 
     def reset_processing_state(self):
         """Reset checkboxes when loading new pattern."""
@@ -416,3 +456,34 @@ class ProcessingPanel(QWidget):
         """Get selected polarization type."""
         pol_map = {0: 'theta', 1: 'phi', 2: 'x', 3: 'y', 4: 'rhcp', 5: 'lhcp'}
         return pol_map.get(self.polarization_combo.currentIndex())
+
+    # === DUAL SPHERE ===
+
+    def _update_dual_sphere_status(self, pattern):
+        """Detect dual sphere and update UI accordingly."""
+        if pattern is None:
+            self.dual_sphere_status.setText("No pattern loaded")
+            self.split_spheres_btn.setEnabled(False)
+            self.average_spheres_btn.setEnabled(False)
+            self.coord_format_combo.setEnabled(True)
+            return
+
+        try:
+            from farfield_spherical import detect_dual_sphere
+            result = detect_dual_sphere(pattern)
+            self.dual_sphere_status.setText(result['message'])
+            self.split_spheres_btn.setEnabled(result['is_dual_sphere'])
+            self.average_spheres_btn.setEnabled(result['is_dual_sphere'])
+        except Exception as e:
+            self.dual_sphere_status.setText(f"Detection error: {e}")
+            self.split_spheres_btn.setEnabled(False)
+            self.average_spheres_btn.setEnabled(False)
+            self.coord_format_combo.setEnabled(True)
+
+    def _on_split_spheres(self):
+        """Handle split spheres button click."""
+        self.split_spheres_signal.emit()
+
+    def _on_average_spheres(self):
+        """Handle average spheres button click."""
+        self.average_spheres_signal.emit()
