@@ -39,6 +39,7 @@ class PatternDataModel(QObject):
             'theta_origin_shift': None,
             'phi_origin_shift': None,
             'amplitude_normalization': None,
+            'boresight_normalization': False,
         }
         
         # View parameters
@@ -90,6 +91,7 @@ class PatternDataModel(QObject):
             'theta_origin_shift': None,
             'phi_origin_shift': None,
             'amplitude_normalization': None,
+            'boresight_normalization': False,
         }
         
         # Reset view parameters when loading new pattern
@@ -118,7 +120,11 @@ class PatternDataModel(QObject):
         # Apply amplitude normalization (if any)
         if self._processing_state['amplitude_normalization'] is not None:
             processed.normalize_amplitude(self._processing_state['amplitude_normalization'])
-    
+
+        # Apply boresight normalization (if enabled)
+        if self._processing_state['boresight_normalization']:
+            processed.normalize_at_boresight()
+
         # Apply origin shifts (if any)
         if self._processing_state['theta_origin_shift'] is not None:
             processed.shift_theta_origin(self._processing_state['theta_origin_shift'])
@@ -407,10 +413,21 @@ class PatternDataModel(QObject):
     def set_amplitude_normalization(self, norm_type: Optional[str]):
         """
         Enable or disable amplitude normalization.
-        
+
         Args:
             norm_type: 'peak', 'boresight', 'mean', or None to disable
         """
         self._processing_state['amplitude_normalization'] = norm_type
         self.apply_processing()
         self.processing_applied.emit("amplitude_normalization")
+
+    def set_boresight_normalization(self, enabled: bool):
+        """
+        Enable or disable boresight normalization.
+
+        When enabled, each phi cut is scaled so all cuts cross at the same
+        amplitude and phase at boresight (theta=0), using the median value.
+        """
+        self._processing_state['boresight_normalization'] = enabled
+        self.apply_processing()
+        self.processing_applied.emit("boresight_normalization")

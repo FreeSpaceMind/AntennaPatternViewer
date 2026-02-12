@@ -173,6 +173,7 @@ class LeftPanelWidget(QWidget):
         self.processing_panel.shift_theta_origin_signal.connect(self.on_shift_theta_origin)
         self.processing_panel.shift_phi_origin_signal.connect(self.on_shift_phi_origin)
         self.processing_panel.normalize_amplitude_signal.connect(self.on_normalize_amplitude)
+        self.processing_panel.normalize_boresight_signal.connect(self.on_normalize_boresight)
         self.processing_panel.split_spheres_signal.connect(self.on_split_spheres)
         self.processing_panel.average_spheres_signal.connect(self.on_average_spheres)
 
@@ -337,6 +338,21 @@ class LeftPanelWidget(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to toggle amplitude normalization: {e}", exc_info=True)
+
+    def on_normalize_boresight(self, enabled):
+        """Handle boresight normalization toggle."""
+        if self.data_model.original_pattern is None:
+            return
+
+        try:
+            self.data_model.set_boresight_normalization(enabled)
+            logger.info(f"Boresight normalization {'enabled' if enabled else 'disabled'}")
+
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to toggle boresight normalization: {e}", exc_info=True)
 
     # === DUAL SPHERE HANDLERS ===
 

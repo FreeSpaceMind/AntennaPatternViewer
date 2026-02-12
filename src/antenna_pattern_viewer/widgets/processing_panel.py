@@ -25,6 +25,7 @@ class ProcessingPanel(QWidget):
     shift_theta_origin_signal = pyqtSignal(float)  # theta_offset in degrees
     shift_phi_origin_signal = pyqtSignal(float)  # phi_offset in degrees
     normalize_amplitude_signal = pyqtSignal(str)  # normalization type
+    normalize_boresight_signal = pyqtSignal(bool)  # enabled
     split_spheres_signal = pyqtSignal()
     average_spheres_signal = pyqtSignal()
 
@@ -45,12 +46,11 @@ class ProcessingPanel(QWidget):
         # Create scrollable widget
         scroll_widget = QWidget()
         layout = QVBoxLayout(scroll_widget)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
 
         # === POLARIZATION ===
         pol_group = QGroupBox("Polarization")
         pol_layout = QHBoxLayout(pol_group)
-        pol_layout.addWidget(QLabel("Polarization:"))
         self.polarization_combo = QComboBox()
         self.polarization_combo.addItems([
             "Theta", "Phi", "X (Ludwig-3)", "Y (Ludwig-3)", "RHCP", "LHCP"
@@ -60,9 +60,10 @@ class ProcessingPanel(QWidget):
         pol_layout.addStretch()
         layout.addWidget(pol_group)
 
-        # === COORDINATE FORMAT ===
+        # === COORDINATE FORMAT & DUAL SPHERE (merged) ===
         coord_group = QGroupBox("Coordinate Format")
         coord_layout = QVBoxLayout(coord_group)
+        coord_layout.setSpacing(4)
 
         coord_row = QHBoxLayout()
         coord_row.addWidget(QLabel("Format:"))
@@ -73,49 +74,36 @@ class ProcessingPanel(QWidget):
         coord_row.addStretch()
         coord_layout.addLayout(coord_row)
 
-        desc_label = QLabel("Central: theta +/-180, phi 0-180  |  Sided: theta 0-180, phi 0-360")
-        desc_label.setStyleSheet("font-size: 9pt; color: #666;")
-        coord_layout.addWidget(desc_label)
-
-        layout.addWidget(coord_group)
-
-        # === DUAL SPHERE ===
-        ds_group = QGroupBox("Dual Sphere")
-        ds_layout = QVBoxLayout(ds_group)
-
-        self.dual_sphere_status = QLabel("No pattern loaded")
+        # Dual sphere status and buttons
+        ds_row = QHBoxLayout()
+        self.dual_sphere_status = QLabel("")
         self.dual_sphere_status.setStyleSheet("font-size: 9pt; color: #666;")
-        self.dual_sphere_status.setWordWrap(True)
-        ds_layout.addWidget(self.dual_sphere_status)
+        ds_row.addWidget(self.dual_sphere_status, 1)
 
-        btn_row = QHBoxLayout()
-        self.split_spheres_btn = QPushButton("Split Spheres")
-        self.split_spheres_btn.setToolTip(
-            "Split into two patterns: phi 0-180 and phi 180-360 remapped to 0-180"
-        )
+        self.split_spheres_btn = QPushButton("Split")
+        self.split_spheres_btn.setToolTip("Split into two patterns: phi 0-180 and phi 180-360 remapped to 0-180")
         self.split_spheres_btn.setEnabled(False)
         self.split_spheres_btn.clicked.connect(self._on_split_spheres)
-        btn_row.addWidget(self.split_spheres_btn)
+        ds_row.addWidget(self.split_spheres_btn)
 
-        self.average_spheres_btn = QPushButton("Average Spheres")
-        self.average_spheres_btn.setToolTip(
-            "Split and average the two spheres into a single pattern"
-        )
+        self.average_spheres_btn = QPushButton("Average")
+        self.average_spheres_btn.setToolTip("Split and average the two spheres into a single pattern")
         self.average_spheres_btn.setEnabled(False)
         self.average_spheres_btn.clicked.connect(self._on_average_spheres)
-        btn_row.addWidget(self.average_spheres_btn)
+        ds_row.addWidget(self.average_spheres_btn)
 
-        btn_row.addStretch()
-        ds_layout.addLayout(btn_row)
+        coord_layout.addLayout(ds_row)
+        layout.addWidget(coord_group)
 
-        layout.addWidget(ds_group)
-
-        # === AMPLITUDE NORMALIZATION ===
-        norm_group = QGroupBox("Amplitude Normalization")
+        # === NORMALIZATION ===
+        norm_group = QGroupBox("Normalization")
         norm_layout = QVBoxLayout(norm_group)
+        norm_layout.setSpacing(4)
 
         norm_row = QHBoxLayout()
-        norm_row.addWidget(QLabel("Reference:"))
+        self.apply_normalization_check = QCheckBox("Amplitude:")
+        self.apply_normalization_check.toggled.connect(self.on_apply_normalization_toggled)
+        norm_row.addWidget(self.apply_normalization_check)
         self.normalization_combo = QComboBox()
         self.normalization_combo.addItems(["Peak", "Boresight", "Mean"])
         self.normalization_combo.setToolTip(
@@ -127,46 +115,48 @@ class ProcessingPanel(QWidget):
         norm_row.addStretch()
         norm_layout.addLayout(norm_row)
 
-        self.apply_normalization_check = QCheckBox("Apply Amplitude Normalization")
-        self.apply_normalization_check.toggled.connect(self.on_apply_normalization_toggled)
-        norm_layout.addWidget(self.apply_normalization_check)
+        self.apply_boresight_norm_check = QCheckBox("Normalize at Boresight")
+        self.apply_boresight_norm_check.setToolTip(
+            "Force all phi cuts to cross at the same amplitude and phase at boresight"
+        )
+        self.apply_boresight_norm_check.toggled.connect(self.on_apply_boresight_norm_toggled)
+        norm_layout.addWidget(self.apply_boresight_norm_check)
 
         layout.addWidget(norm_group)
 
         # === ORIGIN SHIFT ===
         origin_group = QGroupBox("Origin Shift")
         origin_layout = QVBoxLayout(origin_group)
+        origin_layout.setSpacing(4)
 
         # Theta shift
         theta_row = QHBoxLayout()
-        theta_row.addWidget(QLabel("Theta Offset:"))
+        self.apply_theta_shift_check = QCheckBox("Theta:")
+        self.apply_theta_shift_check.toggled.connect(self.on_apply_theta_shift_toggled)
+        theta_row.addWidget(self.apply_theta_shift_check)
         self.theta_shift_spin = QDoubleSpinBox()
         self.theta_shift_spin.setRange(-180.0, 180.0)
         self.theta_shift_spin.setValue(0.0)
         self.theta_shift_spin.setSuffix(" deg")
         self.theta_shift_spin.setDecimals(1)
-        theta_row.addWidget(self.theta_shift_spin)
-
-        self.apply_theta_shift_check = QCheckBox("Apply")
-        self.apply_theta_shift_check.toggled.connect(self.on_apply_theta_shift_toggled)
         self.theta_shift_spin.valueChanged.connect(self.on_theta_shift_value_changed)
-        theta_row.addWidget(self.apply_theta_shift_check)
+        theta_row.addWidget(self.theta_shift_spin)
+        theta_row.addStretch()
         origin_layout.addLayout(theta_row)
 
         # Phi shift
         phi_row = QHBoxLayout()
-        phi_row.addWidget(QLabel("Phi Offset:"))
+        self.apply_phi_shift_check = QCheckBox("Phi:")
+        self.apply_phi_shift_check.toggled.connect(self.on_apply_phi_shift_toggled)
+        phi_row.addWidget(self.apply_phi_shift_check)
         self.phi_shift_spin = QDoubleSpinBox()
         self.phi_shift_spin.setRange(-180.0, 180.0)
         self.phi_shift_spin.setValue(0.0)
         self.phi_shift_spin.setSuffix(" deg")
         self.phi_shift_spin.setDecimals(1)
-        phi_row.addWidget(self.phi_shift_spin)
-
-        self.apply_phi_shift_check = QCheckBox("Apply")
-        self.apply_phi_shift_check.toggled.connect(self.on_apply_phi_shift_toggled)
         self.phi_shift_spin.valueChanged.connect(self.on_phi_shift_value_changed)
-        phi_row.addWidget(self.apply_phi_shift_check)
+        phi_row.addWidget(self.phi_shift_spin)
+        phi_row.addStretch()
         origin_layout.addLayout(phi_row)
 
         layout.addWidget(origin_group)
@@ -174,6 +164,7 @@ class ProcessingPanel(QWidget):
         # === PHASE CENTER ===
         pc_group = QGroupBox("Phase Center")
         pc_layout = QVBoxLayout(pc_group)
+        pc_layout.setSpacing(4)
 
         # Find phase center controls
         find_row = QHBoxLayout()
@@ -183,11 +174,9 @@ class ProcessingPanel(QWidget):
         self.theta_angle_spin.setValue(45.0)
         self.theta_angle_spin.setSuffix(" deg")
         find_row.addWidget(self.theta_angle_spin)
-
         find_row.addWidget(QLabel("Freq:"))
         self.pc_freq_combo = QComboBox()
         find_row.addWidget(self.pc_freq_combo)
-
         self.find_phase_center_btn = QPushButton("Find")
         self.find_phase_center_btn.clicked.connect(self.on_find_phase_center)
         find_row.addWidget(self.find_phase_center_btn)
@@ -201,14 +190,12 @@ class ProcessingPanel(QWidget):
         self.pc_x_spin.setSuffix(" mm")
         self.pc_x_spin.setDecimals(2)
         coords_row.addWidget(self.pc_x_spin)
-
         coords_row.addWidget(QLabel("Y:"))
         self.pc_y_spin = QDoubleSpinBox()
         self.pc_y_spin.setRange(-1000.0, 1000.0)
         self.pc_y_spin.setSuffix(" mm")
         self.pc_y_spin.setDecimals(2)
         coords_row.addWidget(self.pc_y_spin)
-
         coords_row.addWidget(QLabel("Z:"))
         self.pc_z_spin = QDoubleSpinBox()
         self.pc_z_spin.setRange(-1000.0, 1000.0)
@@ -221,18 +208,19 @@ class ProcessingPanel(QWidget):
         self.apply_phase_center_check.toggled.connect(self.on_apply_phase_center_toggled)
         pc_layout.addWidget(self.apply_phase_center_check)
 
-        self.phase_center_result = QLabel("Phase center: Not calculated")
+        self.phase_center_result = QLabel("")
         self.phase_center_result.setStyleSheet("font-size: 9pt; color: #666;")
         pc_layout.addWidget(self.phase_center_result)
 
         layout.addWidget(pc_group)
 
         # === MARS ALGORITHM ===
-        mars_group = QGroupBox("MARS Algorithm")
-        mars_layout = QVBoxLayout(mars_group)
-
-        mars_row = QHBoxLayout()
-        mars_row.addWidget(QLabel("Max Radial Extent:"))
+        mars_group = QGroupBox("MARS")
+        mars_row = QHBoxLayout(mars_group)
+        self.apply_mars_check = QCheckBox("Apply")
+        self.apply_mars_check.toggled.connect(self.on_apply_mars_toggled)
+        mars_row.addWidget(self.apply_mars_check)
+        mars_row.addWidget(QLabel("Max Extent:"))
         self.max_radial_extent_spin = QDoubleSpinBox()
         self.max_radial_extent_spin.setRange(0.001, 10.0)
         self.max_radial_extent_spin.setValue(0.5)
@@ -240,12 +228,6 @@ class ProcessingPanel(QWidget):
         self.max_radial_extent_spin.setDecimals(3)
         mars_row.addWidget(self.max_radial_extent_spin)
         mars_row.addStretch()
-        mars_layout.addLayout(mars_row)
-
-        self.apply_mars_check = QCheckBox("Apply MARS")
-        self.apply_mars_check.toggled.connect(self.on_apply_mars_toggled)
-        mars_layout.addWidget(self.apply_mars_check)
-
         layout.addWidget(mars_group)
 
         # Add stretch
@@ -322,10 +304,11 @@ class ProcessingPanel(QWidget):
         self.apply_theta_shift_check.setEnabled(has_pattern)
         self.apply_phi_shift_check.setEnabled(has_pattern)
         self.apply_normalization_check.setEnabled(has_pattern)
+        self.apply_boresight_norm_check.setEnabled(has_pattern)
         if not has_pattern:
             self.split_spheres_btn.setEnabled(False)
             self.average_spheres_btn.setEnabled(False)
-            self.dual_sphere_status.setText("No pattern loaded")
+            self.dual_sphere_status.setText("")
 
     def reset_processing_state(self):
         """Reset checkboxes when loading new pattern."""
@@ -334,6 +317,7 @@ class ProcessingPanel(QWidget):
         self.apply_theta_shift_check.setChecked(False)
         self.apply_phi_shift_check.setChecked(False)
         self.apply_normalization_check.setChecked(False)
+        self.apply_boresight_norm_check.setChecked(False)
 
     # === EVENT HANDLERS ===
 
@@ -363,6 +347,12 @@ class ProcessingPanel(QWidget):
             self.normalize_amplitude_signal.emit(norm_type)
         else:
             self.normalize_amplitude_signal.emit("")
+
+    def on_apply_boresight_norm_toggled(self, checked):
+        """Handle apply boresight normalization checkbox toggle."""
+        if not self.current_pattern:
+            return
+        self.normalize_boresight_signal.emit(checked)
 
     def on_apply_theta_shift_toggled(self, checked):
         """Handle apply theta shift checkbox toggle."""
@@ -462,23 +452,24 @@ class ProcessingPanel(QWidget):
     def _update_dual_sphere_status(self, pattern):
         """Detect dual sphere and update UI accordingly."""
         if pattern is None:
-            self.dual_sphere_status.setText("No pattern loaded")
+            self.dual_sphere_status.setText("")
             self.split_spheres_btn.setEnabled(False)
             self.average_spheres_btn.setEnabled(False)
-            self.coord_format_combo.setEnabled(True)
             return
 
         try:
             from farfield_spherical import detect_dual_sphere
             result = detect_dual_sphere(pattern)
-            self.dual_sphere_status.setText(result['message'])
+            if result['is_dual_sphere']:
+                self.dual_sphere_status.setText(result['message'])
+            else:
+                self.dual_sphere_status.setText("")
             self.split_spheres_btn.setEnabled(result['is_dual_sphere'])
             self.average_spheres_btn.setEnabled(result['is_dual_sphere'])
         except Exception as e:
             self.dual_sphere_status.setText(f"Detection error: {e}")
             self.split_spheres_btn.setEnabled(False)
             self.average_spheres_btn.setEnabled(False)
-            self.coord_format_combo.setEnabled(True)
 
     def _on_split_spheres(self):
         """Handle split spheres button click."""
