@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QStatusBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings
+from PyQt6.QtGui import QKeySequence, QAction
 from pathlib import Path
 
 from antenna_pattern_viewer.data_model import PatternDataModel
@@ -42,10 +43,6 @@ class AntennaPatternWidget(QMainWindow):
         self.setup_menus()
         self.setup_status_bar()
         self.connect_signals()
-
-        # TEMPORARY: Clear saved layout for testing
-        settings = QSettings("AntPy", "AntennaPatternViewer")
-        settings.clear()
 
     def setup_docks(self):
         """Create and arrange dock widgets with icon sidebar navigation."""
@@ -101,11 +98,23 @@ class AntennaPatternWidget(QMainWindow):
         self.left_panel_dock.setMinimumWidth(350)
 
     def setup_menus(self):
-        """Create menu bar - disabled for embedded mode."""
-        # Menu bar removed since this widget is designed to be embedded
-        # File operations can be done programmatically through the data model
-        # or through a parent application's menu system
-        pass
+        """Create menu bar with Help menu."""
+        menubar = self.menuBar()
+
+        # Help menu
+        help_menu = menubar.addMenu("&Help")
+
+        doc_action = QAction("&Documentation", self)
+        doc_action.setShortcut(QKeySequence("F1"))
+        doc_action.setStatusTip("Open documentation")
+        doc_action.triggered.connect(self.show_help)
+        help_menu.addAction(doc_action)
+
+        context_help_action = QAction("&Context Help", self)
+        context_help_action.setShortcut(QKeySequence("Shift+F1"))
+        context_help_action.setStatusTip("Show help for current panel")
+        context_help_action.triggered.connect(self.show_context_help)
+        help_menu.addAction(context_help_action)
 
     def setup_status_bar(self):
         """Create status bar."""
@@ -210,6 +219,19 @@ class AntennaPatternWidget(QMainWindow):
 
         # Reapply default layout
         self.setup_docks()
+
+    # Help methods
+    def show_help(self):
+        """Show the help documentation dialog."""
+        from antenna_pattern_viewer.help import HelpDialog
+        dialog = HelpDialog(self)
+        dialog.exec()
+
+    def show_context_help(self):
+        """Show context-sensitive help for the current panel."""
+        from antenna_pattern_viewer.help import HelpDialog
+        panel_index = self.left_panel.panel_stack.currentIndex()
+        HelpDialog.show_context_help(self, panel_index)
 
     # Convenience methods to access panels
     def show_files_panel(self):

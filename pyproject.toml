@@ -49,18 +49,13 @@ antenna-pattern-viewer = "antenna_pattern_viewer.__main__:main"
 [project.gui-scripts]
 antenna-pattern-viewer-gui = "antenna_pattern_viewer.__main__:main"
 
-[project.urls]
-Homepage = "https://github.com/yourusername/antenna-pattern-viewer"
-Documentation = "https://antenna-pattern-viewer.readthedocs.io"
-Repository = "https://github.com/yourusername/antenna-pattern-viewer"
-"Bug Tracker" = "https://github.com/yourusername/antenna-pattern-viewer/issues"
-
 [tool.setuptools]
 packages = [
     "antenna_pattern_viewer",
     "antenna_pattern_viewer.widgets",
     "antenna_pattern_viewer.workers",
-    "antenna_pattern_viewer.dialogs"
+    "antenna_pattern_viewer.dialogs",
+    "antenna_pattern_viewer.help"
 ]
 
 [tool.setuptools.package-dir]

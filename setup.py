@@ -20,12 +20,6 @@ setup(
     description="GUI application for visualizing antenna far-field patterns",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/antenna-pattern-viewer",
-    project_urls={
-        "Bug Tracker": "https://github.com/yourusername/antenna-pattern-viewer/issues",
-        "Documentation": "https://antenna-pattern-viewer.readthedocs.io",
-        "Source Code": "https://github.com/yourusername/antenna-pattern-viewer",
-    },
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     classifiers=[

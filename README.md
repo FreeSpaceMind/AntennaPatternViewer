@@ -9,7 +9,7 @@ A PyQt6-based GUI application for visualizing and analyzing antenna far-field pa
 ## Features
 
 - **Dockable Interface**: All panels can be moved, resized, floated, or hidden
-- **Multiple File Formats**: Support for GRASP .cut, NSI .ffd, TICRA .sph, and NPZ files
+- **Multiple File Formats**: Support for GRASP .cut, NSI .ffd, TICRA .sph, ATAMS, and NPZ files
 - **Interactive Visualization**: Real-time 2D pattern plots with zoom, pan, and export
 - **Pattern Processing**: 
   - Phase center translation
@@ -20,7 +20,7 @@ A PyQt6-based GUI application for visualizing and analyzing antenna far-field pa
   - Phase center calculation
   - Axial ratio analysis
   - Directivity computation
-  - Spherical wave expansion (coming soon)
+  - Spherical wave expansion
 - **Flexible Views**:
   - Multiple frequency selection
   - Arbitrary cut angle selection
@@ -38,7 +38,6 @@ A PyQt6-based GUI application for visualizing and analyzing antenna far-field pa
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/antenna-pattern-viewer.git
 cd antenna-pattern-viewer
 pip install -e .
 ```
@@ -130,23 +129,15 @@ viewer.status_message.connect(print)
 
 ### Panels
 
-The application consists of four dockable panels:
+The application uses an icon sidebar for navigation with stacked panels:
 
-1. **Control Panel** (left): Contains three tabs
-   - **View**: Select frequencies, angles, plot types, and display options
-   - **Processing**: Apply phase center translation, rotation, polarization conversion
-   - **Analysis**: Calculate phase centers, directivity, and spherical wave expansion
-
-2. **2D View** (center-top): Interactive matplotlib plot with:
-   - Zoom and pan controls
-   - Grid and legend toggles
-   - Axis limit controls
-   - Normalization option
-   - Export to PNG/PDF/SVG
-
-3. **3D View** (center-bottom): 3D pattern visualization (coming soon)
-
-4. **Data Display** (bottom): Shows pattern statistics and numerical data
+- **File Manager**: Load, manage, and compare pattern files
+- **View Panel**: Select frequencies, angles, plot types, and display options
+- **Processing Panel**: Apply phase center translation, rotation, polarization conversion, boresight normalization, dual sphere processing
+- **Analysis Panel**: Calculate phase centers, directivity, and spherical wave expansion
+- **Export Panel**: Export plots and pattern data
+- **2D View** (center): Interactive matplotlib plot with zoom, pan, grid, legend, axis limits, normalization, and export
+- **Data Display** (bottom): Shows pattern statistics and numerical data
 
 ### Menu Bar
 
@@ -175,12 +166,14 @@ The application consists of four dockable panels:
 - **GRASP .cut**: Standard GRASP10 cut file format
 - **NSI .ffd**: Near-field Systems far-field data
 - **TICRA .sph**: Spherical wave expansion coefficients
+- **ATAMS**: ATAMS measurement format
 - **NPZ**: NumPy compressed format (native)
 
 ### Writing
 - **NPZ**: Native format (recommended for Python workflows)
 - **GRASP .cut**: Export to GRASP format
 - **NSI .ffd**: Export to NSI format
+- **CSV**: Comma-separated values
 
 ## Keyboard Shortcuts
 
@@ -198,24 +191,31 @@ antenna_pattern_viewer/
 ├── src/
 │   └── antenna_pattern_viewer/
 │       ├── __init__.py
-│       ├── __main__.py
+│       ├── main.py
 │       ├── antenna_pattern_widget.py
 │       ├── data_model.py
+│       ├── pattern_instance.py
+│       ├── plotting.py
 │       ├── widgets/
-│       │   ├── control_panel_widget.py
+│       │   ├── left_panel_widget.py
+│       │   ├── icon_sidebar.py
+│       │   ├── view_panel.py
+│       │   ├── processing_panel.py
+│       │   ├── analysis_panel.py
+│       │   ├── file_manager_widget.py
+│       │   ├── export_widget.py
+│       │   ├── pattern_list_widget.py
+│       │   ├── pattern_strip.py
+│       │   ├── plot_widget.py
 │       │   ├── plot_2d_widget.py
 │       │   ├── plot_3d_widget.py
+│       │   ├── plot_nearfield_widget.py
 │       │   ├── data_display_widget.py
-│       │   ├── view_tab.py
-│       │   ├── processing_tab.py
-│       │   ├── analysis_tab.py
-│       │   ├── plot_widget.py
 │       │   └── collapsible_group.py
 │       ├── workers/
 │       │   └── swe_worker.py
 │       └── dialogs/
 │           └── nearfield_viewer.py
-└── tests/
 ```
 
 ### Architecture
@@ -236,17 +236,9 @@ This architecture ensures:
 
 MIT License - see LICENSE file for details
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## Related Packages
 
 - **FarFieldSpherical**: Core library for far-field pattern analysis (required dependency)
-
-## Support
-
-For bug reports and feature requests, please open an issue on GitHub.
 
 ## Changelog
 

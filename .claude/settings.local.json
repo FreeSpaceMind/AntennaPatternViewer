@@ -9,9 +9,13 @@
       "Bash(findstr:*)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\justin.long\\\\Documents\\\\Python\\\\AntennaPatternViewer\" -Recurse -Name \"*.py\")",
       "Bash(Select-String -Pattern \"farfield\")",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(git -C \"C:\\\\Users\\\\justin.long\\\\Documents\\\\Python\\\\spherical_wave_expansion\" log --oneline)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\Users\\justin.long\\Documents\\Python\\spherical_wave_expansion\\swe"
+    ]
   }
 }

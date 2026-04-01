@@ -378,16 +378,6 @@ class PatternDataModel(QObject):
             'num_comparison': len(comparison)
         }
 
-    def update_view_params(self, params: Dict[str, Any]):
-        """
-        Update view parameters and emit signal.
-        
-        Args:
-            params: Dictionary of view parameters to update
-        """
-        self._view_params.update(params)
-        self.view_parameters_changed.emit(self._view_params)
-
     def set_theta_origin_shift(self, theta_offset: Optional[float]):
         """
         Enable or disable theta origin shift.
