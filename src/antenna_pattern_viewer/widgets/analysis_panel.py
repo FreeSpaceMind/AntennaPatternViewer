@@ -362,7 +362,7 @@ class AnalysisPanel(QWidget):
         pattern = self.current_pattern
         if not hasattr(pattern, 'swe'):
             pattern.swe = {}
-        pattern.swe[swe_obj.frequency] = swe_obj
+        pattern.swe[swe_obj.frequencies[0]] = swe_obj
 
         # Display results
         self.display_swe_results(swe_obj)
@@ -416,7 +416,7 @@ class AnalysisPanel(QWidget):
 
                 # Evaluate near field
                 (E_r, E_theta, E_phi), (H_r, H_theta, H_phi) = swe.near_field(
-                    R.ravel(), THETA.ravel(), PHI.ravel()
+                    R.ravel(), THETA.ravel(), PHI.ravel(), freq
                 )
 
                 # Reshape to grid
@@ -450,7 +450,7 @@ class AnalysisPanel(QWidget):
                 r, theta, phi = cartesian_to_spherical(X.ravel(), Y.ravel(), Z.ravel())
 
                 # Evaluate near field in spherical coordinates
-                (E_r, E_theta, E_phi), (H_r, H_theta, H_phi) = swe.near_field(r, theta, phi)
+                (E_r, E_theta, E_phi), (H_r, H_theta, H_phi) = swe.near_field(r, theta, phi, freq)
 
                 # Reshape to grid
                 shape = X.shape
@@ -489,34 +489,40 @@ class AnalysisPanel(QWidget):
         self.swe_calculated = True
         self.calculate_nf_btn.setEnabled(True)
 
+        freq = swe.frequencies[0]
+        q1 = swe.Q1_coeffs(freq)
+        q2 = swe.Q2_coeffs(freq)
+
         result_text = "SWE Coefficients calculated:\n"
-        result_text += f"Frequency: {swe.frequency/1e9:.3f} GHz\n"
-        result_text += f"Mode indices: MMAX={swe.MMAX}, NMAX={swe.NMAX}\n"
+        result_text += f"Frequency: {freq/1e9:.3f} GHz\n"
+        result_text += f"Mode indices: MMAX={swe.MMAX(freq)}, NMAX={swe.NMAX(freq)}\n"
 
         # Calculate total modes
-        total_modes = len(swe.Q1_coeffs) + len(swe.Q2_coeffs)
+        total_modes = len(q1) + len(q2)
         result_text += f"Total coefficients: {total_modes}\n"
 
         # Calculate total power
-        total_power = sum(abs(q)**2 for q in swe.Q1_coeffs.values())
-        total_power += sum(abs(q)**2 for q in swe.Q2_coeffs.values())
+        total_power = sum(abs(q)**2 for q in q1.values())
+        total_power += sum(abs(q)**2 for q in q2.values())
         result_text += f"Total power: {total_power:.6e} W\n"
 
         self.swe_results.setText(result_text)
 
         # Compute and plot power distributions
-        power_per_n, power_per_m = self._compute_power_distributions(swe)
+        power_per_n, power_per_m = self._compute_power_distributions(swe, freq)
         self._plot_power_distributions(power_per_n, power_per_m)
 
-    def _compute_power_distributions(self, swe):
+    def _compute_power_distributions(self, swe, frequency):
         """Compute power aggregated by n and by |m|."""
-        all_modes = set(swe.Q1_coeffs.keys()) | set(swe.Q2_coeffs.keys())
+        q1_dict = swe.Q1_coeffs(frequency)
+        q2_dict = swe.Q2_coeffs(frequency)
+        all_modes = set(q1_dict.keys()) | set(q2_dict.keys())
 
         power_per_n = {}
         power_per_m = {}
         for (n, m) in all_modes:
-            q1 = swe.Q1_coeffs.get((n, m), 0)
-            q2 = swe.Q2_coeffs.get((n, m), 0)
+            q1 = q1_dict.get((n, m), 0)
+            q2 = q2_dict.get((n, m), 0)
             mode_power = abs(q1)**2 + abs(q2)**2
             power_per_n[n] = power_per_n.get(n, 0) + mode_power
             power_per_m[abs(m)] = power_per_m.get(abs(m), 0) + mode_power
@@ -597,23 +603,27 @@ class AnalysisPanel(QWidget):
             swe = self.current_pattern.swe[freq]
             swe_for_plot = swe
 
+            freq = swe.frequencies[0]
+            q1 = swe.Q1_coeffs(freq)
+            q2 = swe.Q2_coeffs(freq)
+
             result_text = "SWE Coefficients (loaded from file):\n"
-            result_text += f"Frequency: {swe.frequency/1e9:.3f} GHz\n"
+            result_text += f"Frequency: {freq/1e9:.3f} GHz\n"
 
             # Calculate wavelength
-            wavelength = 299792458.0 / swe.frequency if swe.frequency else 0
+            wavelength = 299792458.0 / freq if freq else 0
             if hasattr(swe, 'radius'):
                 result_text += f"Radius: {swe.radius:.4f} m ({swe.radius/wavelength:.2f} lambda)\n"
 
-            result_text += f"Mode indices: MMAX={swe.MMAX}, NMAX={swe.NMAX}\n"
+            result_text += f"Mode indices: MMAX={swe.MMAX(freq)}, NMAX={swe.NMAX(freq)}\n"
 
             # Calculate total modes
-            total_modes = len(swe.Q1_coeffs) + len(swe.Q2_coeffs)
+            total_modes = len(q1) + len(q2)
             result_text += f"Total coefficients: {total_modes}\n"
 
             # Calculate total power if possible
-            total_power = sum(abs(q)**2 for q in swe.Q1_coeffs.values())
-            total_power += sum(abs(q)**2 for q in swe.Q2_coeffs.values())
+            total_power = sum(abs(q)**2 for q in q1.values())
+            total_power += sum(abs(q)**2 for q in q2.values())
             result_text += f"Total power: {total_power:.6e} W\n"
 
         else:
@@ -624,11 +634,11 @@ class AnalysisPanel(QWidget):
             result_text += f"{num_frequencies} frequencies with SWE data:\n\n"
 
             for freq, swe in self.current_pattern.swe.items():
-                result_text += f"  - {swe.frequency/1e9:.3f} GHz: "
-                result_text += f"MMAX={swe.MMAX}, NMAX={swe.NMAX}"
+                result_text += f"  - {freq/1e9:.3f} GHz: "
+                result_text += f"MMAX={swe.MMAX(freq)}, NMAX={swe.NMAX(freq)}"
 
                 if hasattr(swe, 'radius'):
-                    wavelength = 299792458.0 / swe.frequency
+                    wavelength = 299792458.0 / freq
                     result_text += f", R={swe.radius:.4f} m ({swe.radius/wavelength:.2f} lambda)"
                 result_text += "\n"
 
@@ -636,7 +646,8 @@ class AnalysisPanel(QWidget):
 
         # Plot power distributions
         if swe_for_plot is not None:
-            power_per_n, power_per_m = self._compute_power_distributions(swe_for_plot)
+            plot_freq = swe_for_plot.frequencies[0]
+            power_per_n, power_per_m = self._compute_power_distributions(swe_for_plot, plot_freq)
             self._plot_power_distributions(power_per_n, power_per_m)
 
     # Getter methods
