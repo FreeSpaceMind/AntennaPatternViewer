@@ -23,7 +23,15 @@ from pathlib import Path
 import time
 import os
 
-from farfield_spherical import read_cut, read_ffd, load_pattern_npz, read_atams
+from farfield_spherical import (
+    FarFieldSpherical,
+    load_pattern_npz,
+    read_atams,
+    read_cut,
+    read_ffd,
+    scan_sph_frequencies,
+)
+from ..dialogs.sph_frequency_dialog import SphFrequencyDialog
 from ..pattern_instance import PatternInstance
 
 
@@ -504,11 +512,20 @@ class FileManagerWidget(QWidget):
                 pattern, _ = load_pattern_npz(str(file_path))
 
             elif suffix == '.sph':
-                from farfield_spherical.io.readers import read_ticra_sph
-                from farfield_spherical.io.swe_utils import create_pattern_from_swe
-
-                swe = read_ticra_sph(str(file_path))
-                pattern = create_pattern_from_swe(swe)
+                freqs = scan_sph_frequencies(file_path)
+                selected = None
+                if len(freqs) == 1:
+                    selected = freqs[0]
+                else:
+                    dialog = SphFrequencyDialog(file_path.name, freqs, self)
+                    if dialog.exec() == QDialog.DialogCode.Accepted:
+                        selected = dialog.selected_frequencies()
+                    else:
+                        return
+                pattern = FarFieldSpherical.from_ticra_sph(
+                    str(file_path),
+                    frequency=selected,
+                )
 
             elif suffix == '.atams':
                 dialog = AtamsFileDialog(file_path.name, self)
