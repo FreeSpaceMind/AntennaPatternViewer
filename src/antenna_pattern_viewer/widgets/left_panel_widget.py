@@ -180,6 +180,9 @@ class LeftPanelWidget(QWidget):
         # Analysis panel -> forward nearfield signal
         self.analysis_panel.nearfield_calculated.connect(self.nearfield_calculated.emit)
 
+        # Analysis panel -> cross-pol metrics on the processed pattern
+        self.analysis_panel.compute_crosspol_signal.connect(self.on_compute_crosspol)
+
         # Comparison set changes -> update view panel status
         self.data_model.comparison_set_changed.connect(self.on_comparison_set_changed)
 
@@ -196,6 +199,32 @@ class LeftPanelWidget(QWidget):
         compatibility = self.data_model.get_comparison_compatibility()
         num_patterns = len(comparison_ids)
         self.view_panel.update_comparison_status(num_patterns, compatibility)
+
+    # === ANALYSIS PANEL HANDLERS ===
+
+    def on_compute_crosspol(self, theta_e, n_max, requirements):
+        """
+        Compute feed cross-pol metrics on the current (processed) pattern and
+        push the report back to the analysis panel.
+
+        The processed pattern is used so that polarization and coordinate
+        format changes on the Processing panel are reflected in the metrics.
+        """
+        pattern = self.data_model.pattern
+        if pattern is None:
+            return
+        try:
+            from farfield_spherical import crosspol_report, check_requirements
+            report = crosspol_report(pattern, theta_e, n_max)
+            if requirements:
+                report = check_requirements(report, **requirements)
+            self.analysis_panel.display_crosspol_results(report)
+        except ValueError as e:
+            self.analysis_panel.show_crosspol_error(str(e))
+            logger.error(f"Cross-pol metrics failed: {e}")
+        except Exception as e:
+            self.analysis_panel.show_crosspol_error(str(e))
+            logger.error(f"Cross-pol metrics failed: {e}", exc_info=True)
 
     # === PROCESSING PANEL HANDLERS ===
 

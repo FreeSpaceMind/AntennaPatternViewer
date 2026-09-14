@@ -470,7 +470,7 @@ The physical rationale is that a source of maximum extent $a$ can only radiate s
 
 ## Analysis Panel (Panel 3)
 
-The Analysis Panel provides two capabilities: **Spherical Wave Expansion (SWE)** for modal decomposition, and **Near Field Evaluation** from SWE coefficients.
+The Analysis Panel provides three capabilities: **Spherical Wave Expansion (SWE)** for modal decomposition, **Near Field Evaluation** from SWE coefficients, and **Cross-Polarization Metrics** for evaluating a reflector feed over its illumination cone.
 
 ### Spherical Wave Expansion (SWE) Section
 
@@ -561,6 +561,41 @@ After computation, the results text area shows:
 - Surface type (spherical or planar)
 - Grid dimensions and extents
 - The near-field data is emitted via the `nearfield_calculated` signal, which populates the **Near Field** dock widget in the center area
+
+### Cross-Polarization Metrics Section
+
+Evaluates the feed cross-polarization requirements defined in *Cross-Polarization Metrics for a Reflector Feed* on the **processed** pattern (the one currently displayed), so a polarization or coordinate-format change on the Processing panel is reflected in the results. The definitions are in the Theory section under Analysis Functions.
+
+| Control | Description |
+|---------|-------------|
+| **Illumination half-angle $\theta_e$** | Half-angle of the cone subtended by the reflector at the feed (1--90$^\circ$, default 35$^\circ$). All metrics are integrated or searched over $0 \le \theta \le \theta_e$ |
+| **Max azimuthal order** | Highest azimuthal order $n$ retained in the cross-pol mode spectrum (0--12, default 6). Must not exceed the Nyquist order of the $\phi$ grid |
+| **Check against requirements** | When checked, the requirement fields below are enabled and the results are colored by pass/fail |
+| **XPD_int $\ge$** | Minimum integrated XPD in dB (default 20) |
+| **n = 0 level $\ge$** | Minimum $n = 0$ cross-pol level in dB (default 40) |
+| **Bands (GHz)** | Comma-separated `lo-hi` pairs in GHz (default `8-11, 13-15`). Frequencies outside these bands are reported but excluded from pass/fail. Leave blank to treat every frequency as in band |
+| **Compute Cross-Pol Metrics** | Runs the computation (milliseconds; no background thread) |
+| **Export CSV** | Writes the last result to CSV, one row per frequency, with a column per azimuthal mode |
+
+The pattern must cover a full 360$^\circ$ in $\phi$ on a uniform grid (a duplicated endpoint such as $-180/+180$ is handled), and $\theta$ must be uniformly spaced inside the cone. A half-plane measurement ($\phi$ 0--180 in sided form) cannot be evaluated; the error message in the summary line says which condition failed.
+
+#### Results Table
+
+One row per frequency; all values in dB.
+
+| Column | Meaning |
+|--------|---------|
+| **f (GHz)** | Frequency |
+| **In band** | `Yes`/`No` when requirement checking is on, otherwise a dash |
+| **Edge taper** | $\phi$-averaged co-pol amplitude at $\theta_e$ relative to peak. Sanity check on the feed / illumination-angle pairing; about $-10$ to $-13$ dB for a typical design |
+| **XPD_int** | Integrated XPD: co- to cross-polarized power ratio over the cone. Requirement 2 |
+| **n=0 level** | Peak co-pol amplitude over the azimuthally symmetric ($n = 0$) component of the cross-pol field, worst case over the cone. Requirement 1 |
+| **Worst point XPD** | Minimum over the cone of co/cross at the same angle. Conventional and pessimistic; for comparison only |
+| **Peak xpol** | Peak co-pol over the peak cross-pol in the cone. The datasheet-style number; for comparison only |
+
+When requirement checking is on, the **XPD_int** and **n=0 level** cells show the margin to the limit in parentheses and are colored green (pass) or red (fail). The summary line below the table reports the worst in-band values and an overall PASS/FAIL; without checking, it reports the worst values over all frequencies.
+
+The $n = 0$ level of a horn-only, azimuthally symmetric simulation sits at the solver's numerical floor (typically 65--80 dB) and is not representative of the assembled feed.
 
 ---
 
