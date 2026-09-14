@@ -750,7 +750,7 @@ class AnalysisPanel(QWidget):
             # Multiple frequencies - display summary, use first for plot
             swe_for_plot = list(self.current_pattern.swe.values())[0]
 
-            result_text = f"SWE Coefficients (loaded from file):\n"
+            result_text = "SWE Coefficients (loaded from file):\n"
             result_text += f"{num_frequencies} frequencies with SWE data:\n\n"
 
             for freq, swe in self.current_pattern.swe.items():
