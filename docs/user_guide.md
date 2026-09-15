@@ -320,10 +320,27 @@ When multiple processing steps are enabled simultaneously, they are applied in t
 1. Coordinate format transformation
 2. Amplitude normalization
 3. Boresight normalization
-4. Theta origin shift
-5. Phi origin shift
+4. Theta origin shift (measurement correction)
+5. Phi origin shift (measurement correction)
 6. Phase center translation
-7. MARS
+7. MARS (measurement correction)
+8. Rotation (antenna orientation)
+
+Measurement corrections run first, in the frame the data was measured in. Rotation runs last, after the phase center has been moved to the origin, because a rotation is only as accurate as the sampling and a pattern whose phase center is far from the origin varies quickly in phase between samples.
+
+### Measurement Correction versus Rotation
+
+Two groups on this panel move the pattern around in angle, and they are for different jobs:
+
+| | Origin Shift (Measurement Correction) | Rotation (Antenna Orientation) |
+|---|---|---|
+| **Purpose** | Undo a positioner or mounting offset so that the measured $\theta = 0$, $\phi = 0$ line up with the antenna's true boresight and reference plane | Point the antenna somewhere other than $+z$, as it will be mounted |
+| **What it does** | Re-labels the measured angle axes: the $\phi$ shift renumbers the cuts, the $\theta$ shift slides each $\phi$ cut along its own $\theta$ axis | Rigid 3D rotation of the whole pattern about the origin, field vectors included |
+| **Is it a rotation of the antenna?** | No. Every cut is shifted along a different great circle, so the result is not a rigid rotation and the boresight does not land at a definite $(\theta_0, \phi_0)$ | Yes |
+| **Typical magnitude** | A fraction of a degree to a few degrees | Any angle |
+| **Library call** | `shift_theta_origin`, `shift_phi_origin` | `rotate` |
+
+If you want to see how the pattern looks with the antenna tilted, use **Rotation**. If the measured pattern peak is a little off $\theta = 0$ because of how the antenna sat on the positioner, use **Origin Shift**.
 
 ### Polarization
 
@@ -407,14 +424,26 @@ When enabled, each phi cut is individually scaled so that all cuts have the same
 
 This is useful for correcting systematic per-cut gain and phase offsets in measured data.
 
-### Origin Shift
+### Origin Shift (Measurement Correction)
 
 | Control | Range | Step | Description |
 |---------|-------|------|-------------|
-| **Theta** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Shifts the theta origin by the specified offset |
-| **Phi** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Shifts the phi origin by the specified offset |
+| **Theta** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Shifts the theta origin of every $\phi$ cut by the specified offset (interpolated along the cut) |
+| **Phi** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Adds the offset to the $\phi$ coordinate of every cut |
 
-The checkbox enables/disables the shift. The spinbox value is applied live when the checkbox is enabled; changing the spinbox value while enabled immediately updates the pattern.
+This is a measurement correction for positioner or mounting offsets, not a rotation of the antenna (see *Measurement Correction versus Rotation* above). The theta shift is carried out in central format, where each cut is a closed circle and wraps instead of clipping, and the result is mapped back onto the pattern's own grid, so it behaves the same whether the pattern is displayed in sided or central format. The checkbox enables/disables the shift. The spinbox value is applied live when the checkbox is enabled; changing the spinbox value while enabled immediately updates the pattern.
+
+### Rotation (Antenna Orientation)
+
+| Control | Range | Description |
+|---------|-------|-------------|
+| **Apply** checkbox | | Enables the rotation; angle changes are applied live while checked |
+| **$\alpha$** | $[-180^\circ, 180^\circ]$ | Azimuth about $y$; $+\alpha$ tilts the boresight toward $+x$ ($\phi = 0^\circ$) |
+| **$\beta$** | $[-180^\circ, 180^\circ]$ | Elevation about $x$; $+\beta$ tilts the boresight toward $+y$ ($\phi = 90^\circ$) |
+| **$\gamma$** | $[-180^\circ, 180^\circ]$ | Roll about $z$, from $+x$ toward $+y$ |
+| **Interpolation** | Linear / Cubic | Cubic is more accurate on coarse grids but slower |
+
+The rotation is $R = R_y(\alpha)\,R_x(-\beta)\,R_z(\gamma)$ applied to the antenna: roll first, then elevation, then azimuth. The status line shows where the original boresight lands, $\theta_0 = \arccos(\cos\alpha\cos\beta)$, $\phi_0 = \operatorname{atan2}(\sin\beta, \sin\alpha\cos\beta)$. The rotated pattern is resampled on the pattern's own grid, in its own coordinate format, so directions that rotate outside a partial-sphere measurement come back as zero. See *Isometric Rotation* under Pattern Operations in the Theory section for the details.
 
 ### Phase Center
 
@@ -470,7 +499,7 @@ The physical rationale is that a source of maximum extent $a$ can only radiate s
 
 ## Analysis Panel (Panel 3)
 
-The Analysis Panel provides two capabilities: **Spherical Wave Expansion (SWE)** for modal decomposition, and **Near Field Evaluation** from SWE coefficients.
+The Analysis Panel provides three capabilities: **Spherical Wave Expansion (SWE)** for modal decomposition, **Near Field Evaluation** from SWE coefficients, and **Cross-Polarization Metrics** for evaluating a reflector feed over its illumination cone.
 
 ### Spherical Wave Expansion (SWE) Section
 
@@ -563,6 +592,41 @@ After computation, the results text area shows:
 - Surface type (spherical or planar)
 - Grid dimensions and extents
 - The near-field data is emitted via the `nearfield_calculated` signal, which populates the **Near Field** dock widget in the center area
+
+### Cross-Polarization Metrics Section
+
+Evaluates the feed cross-polarization requirements defined in *Cross-Polarization Metrics for a Reflector Feed* on the **processed** pattern (the one currently displayed), so a polarization or coordinate-format change on the Processing panel is reflected in the results. The definitions are in the Theory section under Analysis Functions.
+
+| Control | Description |
+|---------|-------------|
+| **Illumination half-angle $\theta_e$** | Half-angle of the cone subtended by the reflector at the feed (1--90$^\circ$, default 35$^\circ$). All metrics are integrated or searched over $0 \le \theta \le \theta_e$ |
+| **Max azimuthal order** | Highest azimuthal order $n$ retained in the cross-pol mode spectrum (0--12, default 6). Must not exceed the Nyquist order of the $\phi$ grid |
+| **Check against requirements** | When checked, the requirement fields below are enabled and the results are colored by pass/fail |
+| **XPD_int $\ge$** | Minimum integrated XPD in dB (default 20) |
+| **n = 0 level $\ge$** | Minimum $n = 0$ cross-pol level in dB (default 40) |
+| **Bands (GHz)** | Comma-separated `lo-hi` pairs in GHz (default `8-11, 13-15`). Frequencies outside these bands are reported but excluded from pass/fail. Leave blank to treat every frequency as in band |
+| **Compute Cross-Pol Metrics** | Runs the computation (milliseconds; no background thread) |
+| **Export CSV** | Writes the last result to CSV, one row per frequency, with a column per azimuthal mode |
+
+The pattern must cover a full 360$^\circ$ in $\phi$ on a uniform grid (a duplicated endpoint such as $-180/+180$ is handled), and $\theta$ must be uniformly spaced inside the cone. A half-plane measurement ($\phi$ 0--180 in sided form) cannot be evaluated; the error message in the summary line says which condition failed.
+
+#### Results Table
+
+One row per frequency; all values in dB.
+
+| Column | Meaning |
+|--------|---------|
+| **f (GHz)** | Frequency |
+| **In band** | `Yes`/`No` when requirement checking is on, otherwise a dash |
+| **Edge taper** | $\phi$-averaged co-pol amplitude at $\theta_e$ relative to peak. Sanity check on the feed / illumination-angle pairing; about $-10$ to $-13$ dB for a typical design |
+| **XPD_int** | Integrated XPD: co- to cross-polarized power ratio over the cone. Requirement 2 |
+| **n=0 level** | Peak co-pol amplitude over the azimuthally symmetric ($n = 0$) component of the cross-pol field, worst case over the cone. Requirement 1 |
+| **Worst point XPD** | Minimum over the cone of co/cross at the same angle. Conventional and pessimistic; for comparison only |
+| **Peak xpol** | Peak co-pol over the peak cross-pol in the cone. The datasheet-style number; for comparison only |
+
+When requirement checking is on, the **XPD_int** and **n=0 level** cells show the margin to the limit in parentheses and are colored green (pass) or red (fail). The summary line below the table reports the worst in-band values and an overall PASS/FAIL; without checking, it reports the worst values over all frequencies.
+
+The $n = 0$ level of a horn-only, azimuthally symmetric simulation sits at the solver's numerical floor (typically 65--80 dB) and is not representative of the assembled feed.
 
 ---
 

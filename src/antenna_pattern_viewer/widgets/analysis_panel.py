@@ -7,10 +7,12 @@ including Spherical Wave Expansion and Near Field evaluation.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QComboBox, QPushButton, QDoubleSpinBox, QCheckBox,
-    QScrollArea, QSpinBox, QTextEdit, QSizePolicy, QListWidget,
+    QScrollArea, QSpinBox, QTextEdit, QSizePolicy,
+    QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QListWidget,
     QListWidgetItem
 )
 from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QColor
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -27,6 +29,7 @@ class AnalysisPanel(QWidget):
     Contains:
     - Spherical Wave Expansion (SWE) calculation
     - Near Field evaluation from SWE coefficients
+    - Feed cross-polarization metrics over an illumination cone
 
     This panel was extracted from the AnalysisTab to be a standalone
     panel in the new icon sidebar navigation.
@@ -34,6 +37,18 @@ class AnalysisPanel(QWidget):
 
     # Signals
     nearfield_calculated = pyqtSignal(dict)  # Emits near field data
+    # theta_e (deg), n_max, requirements dict or None
+    compute_crosspol_signal = pyqtSignal(float, int, object)
+
+    CROSSPOL_COLUMNS = [
+        ("f (GHz)", None),
+        ("In band", "in_band"),
+        ("Edge taper", "edge_taper_db"),
+        ("XPD_int", "xpd_int_db"),
+        ("n=0 level", "n0_level_db"),
+        ("Worst point XPD", "xpd_worst_db"),
+        ("Peak xpol", "xpol_peak_db"),
+    ]
 
     def __init__(self, data_model, parent=None):
         super().__init__(parent)
@@ -42,6 +57,7 @@ class AnalysisPanel(QWidget):
         self.swe_calculated = False
         self.nearfield_data = None
         self.swe_worker = None
+        self.crosspol_report = None
 
         self.setup_ui()
         self.connect_signals()
@@ -282,6 +298,106 @@ class AnalysisPanel(QWidget):
 
         layout.addWidget(nf_group)
 
+        # === CROSS-POLARIZATION METRICS ===
+        xp_group = QGroupBox("Cross-Polarization Metrics")
+        xp_layout = QVBoxLayout(xp_group)
+
+        xp_layout.addWidget(QLabel("Feed cross-pol over the illumination cone:"))
+
+        theta_e_row = QHBoxLayout()
+        theta_e_row.addWidget(QLabel("Illumination half-angle \u03b8e:"))
+        self.xp_theta_e_spin = QDoubleSpinBox()
+        self.xp_theta_e_spin.setRange(1.0, 90.0)
+        self.xp_theta_e_spin.setValue(35.0)
+        self.xp_theta_e_spin.setDecimals(1)
+        self.xp_theta_e_spin.setSuffix("\u00b0")
+        self.xp_theta_e_spin.setToolTip("Cone half-angle subtended by the reflector at the feed")
+        theta_e_row.addWidget(self.xp_theta_e_spin)
+        theta_e_row.addStretch()
+        xp_layout.addLayout(theta_e_row)
+
+        n_max_row = QHBoxLayout()
+        n_max_row.addWidget(QLabel("Max azimuthal order:"))
+        self.xp_n_max_spin = QSpinBox()
+        self.xp_n_max_spin.setRange(0, 12)
+        self.xp_n_max_spin.setValue(6)
+        self.xp_n_max_spin.setToolTip("Highest azimuthal order n retained in the cross-pol mode spectrum")
+        n_max_row.addWidget(self.xp_n_max_spin)
+        n_max_row.addStretch()
+        xp_layout.addLayout(n_max_row)
+
+        self.xp_check_req = QCheckBox("Check against requirements")
+        self.xp_check_req.setChecked(False)
+        self.xp_check_req.toggled.connect(self._on_crosspol_check_toggled)
+        xp_layout.addWidget(self.xp_check_req)
+
+        self.xp_req_widget = QWidget()
+        req_layout = QVBoxLayout(self.xp_req_widget)
+        req_layout.setContentsMargins(20, 0, 0, 0)
+
+        xpd_row = QHBoxLayout()
+        xpd_row.addWidget(QLabel("XPD_int \u2265"))
+        self.xp_xpd_min_spin = QDoubleSpinBox()
+        self.xp_xpd_min_spin.setRange(-50.0, 150.0)
+        self.xp_xpd_min_spin.setValue(20.0)
+        self.xp_xpd_min_spin.setDecimals(1)
+        self.xp_xpd_min_spin.setSuffix(" dB")
+        xpd_row.addWidget(self.xp_xpd_min_spin)
+        xpd_row.addStretch()
+        req_layout.addLayout(xpd_row)
+
+        n0_row = QHBoxLayout()
+        n0_row.addWidget(QLabel("n = 0 level \u2265"))
+        self.xp_n0_min_spin = QDoubleSpinBox()
+        self.xp_n0_min_spin.setRange(-50.0, 150.0)
+        self.xp_n0_min_spin.setValue(40.0)
+        self.xp_n0_min_spin.setDecimals(1)
+        self.xp_n0_min_spin.setSuffix(" dB")
+        n0_row.addWidget(self.xp_n0_min_spin)
+        n0_row.addStretch()
+        req_layout.addLayout(n0_row)
+
+        bands_row = QHBoxLayout()
+        bands_row.addWidget(QLabel("Bands (GHz):"))
+        self.xp_bands_edit = QLineEdit("8-11, 13-15")
+        self.xp_bands_edit.setPlaceholderText("lo-hi, lo-hi (blank = all frequencies)")
+        self.xp_bands_edit.setToolTip(
+            "Comma-separated lo-hi pairs in GHz. Frequencies outside these bands "
+            "are reported but excluded from pass/fail. Blank means all in band.")
+        bands_row.addWidget(self.xp_bands_edit)
+        req_layout.addLayout(bands_row)
+
+        self.xp_req_widget.setEnabled(False)
+        xp_layout.addWidget(self.xp_req_widget)
+
+        self.compute_crosspol_btn = QPushButton("Compute Cross-Pol Metrics")
+        self.compute_crosspol_btn.clicked.connect(self.on_compute_crosspol)
+        self.compute_crosspol_btn.setEnabled(False)
+        xp_layout.addWidget(self.compute_crosspol_btn)
+
+        self.crosspol_table = QTableWidget(0, len(self.CROSSPOL_COLUMNS))
+        self.crosspol_table.setHorizontalHeaderLabels([c[0] for c in self.CROSSPOL_COLUMNS])
+        self.crosspol_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents)
+        self.crosspol_table.verticalHeader().setVisible(False)
+        self.crosspol_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.crosspol_table.setMinimumHeight(120)
+        self.crosspol_table.setMaximumHeight(260)
+        self.crosspol_table.setToolTip("All values in dB. Margins to the requirement are shown in parentheses.")
+        xp_layout.addWidget(self.crosspol_table)
+
+        self.crosspol_summary = QLabel("")
+        self.crosspol_summary.setWordWrap(True)
+        self.crosspol_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        xp_layout.addWidget(self.crosspol_summary)
+
+        self.export_crosspol_btn = QPushButton("Export CSV")
+        self.export_crosspol_btn.clicked.connect(self.on_export_crosspol_csv)
+        self.export_crosspol_btn.setEnabled(False)
+        xp_layout.addWidget(self.export_crosspol_btn)
+
+        layout.addWidget(xp_group)
+
         # Add stretch
         layout.addStretch()
 
@@ -312,6 +428,8 @@ class AnalysisPanel(QWidget):
             self.power_canvas.setVisible(False)
             self.calculate_swe_btn.setEnabled(False)
             self.calculate_nf_btn.setEnabled(False)
+            self._clear_crosspol_results()
+            self.compute_crosspol_btn.setEnabled(False)
             return
 
         self.current_pattern = pattern
@@ -339,6 +457,8 @@ class AnalysisPanel(QWidget):
             self.swe_results.clear()
 
         self.nf_results.clear()
+        self._clear_crosspol_results()
+        self.compute_crosspol_btn.setEnabled(True)
 
     def on_surface_type_changed(self, surface_type):
         """Handle surface type change."""
@@ -664,7 +784,7 @@ class AnalysisPanel(QWidget):
             # Multiple frequencies - display summary, use first for plot
             swe_for_plot = list(self.current_pattern.swe.values())[0]
 
-            result_text = f"SWE Coefficients (loaded from file):\n"
+            result_text = "SWE Coefficients (loaded from file):\n"
             result_text += f"{num_frequencies} frequencies with SWE data:\n\n"
 
             for freq, swe in self.current_pattern.swe.items():
@@ -683,6 +803,177 @@ class AnalysisPanel(QWidget):
             plot_freq = swe_for_plot.frequencies[0]
             power_per_n, power_per_m = self._compute_power_distributions(swe_for_plot, plot_freq)
             self._plot_power_distributions(power_per_n, power_per_m)
+
+    # === CROSS-POLARIZATION METRICS ===
+
+    def _on_crosspol_check_toggled(self, checked):
+        self.xp_req_widget.setEnabled(checked)
+
+    def _clear_crosspol_results(self):
+        self.crosspol_report = None
+        self.crosspol_table.setRowCount(0)
+        self.crosspol_summary.setText("")
+        self.crosspol_summary.setStyleSheet("")
+        self.export_crosspol_btn.setEnabled(False)
+
+    @staticmethod
+    def parse_bands_ghz(text):
+        """
+        Parse "lo-hi, lo-hi" in GHz into a list of (lo_hz, hi_hz) tuples.
+
+        Blank text returns None (all frequencies in band).
+
+        Raises:
+            ValueError: on a malformed entry
+        """
+        text = (text or "").strip()
+        if not text:
+            return None
+        bands = []
+        for chunk in text.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            parts = chunk.split("-")
+            if len(parts) != 2:
+                raise ValueError(f"Band '{chunk}' must be of the form lo-hi (GHz).")
+            try:
+                lo, hi = float(parts[0]), float(parts[1])
+            except ValueError:
+                raise ValueError(f"Band '{chunk}' must be of the form lo-hi (GHz).")
+            if hi < lo:
+                raise ValueError(f"Band '{chunk}': upper edge is below lower edge.")
+            bands.append((lo * 1e9, hi * 1e9))
+        return bands or None
+
+    def get_crosspol_requirements(self):
+        """Requirement dict for check_requirements, or None when checking is off."""
+        if not self.xp_check_req.isChecked():
+            return None
+        return {
+            "xpd_int_min_db": self.xp_xpd_min_spin.value(),
+            "n0_min_db": self.xp_n0_min_spin.value(),
+            "bands_hz": self.parse_bands_ghz(self.xp_bands_edit.text()),
+        }
+
+    def on_compute_crosspol(self):
+        """Emit a request to compute cross-pol metrics on the current (processed) pattern."""
+        if self.data_model.pattern is None:
+            return
+        try:
+            requirements = self.get_crosspol_requirements()
+        except ValueError as e:
+            self.show_crosspol_error(str(e))
+            return
+        self.compute_crosspol_signal.emit(
+            float(self.xp_theta_e_spin.value()),
+            int(self.xp_n_max_spin.value()),
+            requirements)
+
+    def show_crosspol_error(self, msg):
+        """Clear the results table and show an error message in the summary label."""
+        self.crosspol_report = None
+        self.crosspol_table.setRowCount(0)
+        self.crosspol_summary.setStyleSheet("color: #c00000;")
+        self.crosspol_summary.setText(f"Error: {msg}")
+        self.export_crosspol_btn.setEnabled(False)
+
+    def display_crosspol_results(self, report):
+        """
+        Populate the table and summary from a crosspol_report Dataset
+        (optionally passed through check_requirements).
+        """
+        self.crosspol_report = report
+        checked = "in_band" in report
+
+        freqs = report["frequency"].values
+        self.crosspol_table.setRowCount(len(freqs))
+        pass_color = QColor(200, 240, 200)
+        fail_color = QColor(250, 200, 200)
+        margin_vars = {"xpd_int_db": ("xpd_int_margin_db", "xpd_int_pass"),
+                       "n0_level_db": ("n0_margin_db", "n0_pass")}
+
+        for i, f in enumerate(freqs):
+            for col, (_, var) in enumerate(self.CROSSPOL_COLUMNS):
+                if var is None:
+                    item = QTableWidgetItem(f"{f / 1e9:.3f}")
+                elif var == "in_band":
+                    if checked:
+                        item = QTableWidgetItem("Yes" if bool(report["in_band"].values[i]) else "No")
+                    else:
+                        item = QTableWidgetItem("\u2014")
+                else:
+                    value = float(report[var].values[i])
+                    text = f"{value:.2f}"
+                    if var in margin_vars and margin_vars[var][0] in report:
+                        margin_var, pass_var = margin_vars[var]
+                        margin = float(report[margin_var].values[i])
+                        text += f" ({margin:+.2f})"
+                        item = QTableWidgetItem(text)
+                        item.setBackground(pass_color if bool(report[pass_var].values[i])
+                                           else fail_color)
+                    else:
+                        item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.crosspol_table.setItem(i, col, item)
+
+        self.crosspol_summary.setStyleSheet("")
+        self.crosspol_summary.setText(self._crosspol_summary_text(report))
+        self.export_crosspol_btn.setEnabled(True)
+
+    @staticmethod
+    def _crosspol_summary_text(report):
+        theta_e = report.attrs.get("theta_e_deg")
+        pol = report.attrs.get("polarization", "?")
+        lines = [f"\u03b8e = {theta_e:g}\u00b0, polarization '{pol}', "
+                 f"n_max = {report.attrs.get('n_max', '?')}"]
+        if "in_band" in report:
+            in_band = report["in_band"].values
+            if in_band.any():
+                worst_xpd = float(report["xpd_int_db"].values[in_band].min())
+                worst_n0 = float(report["n0_level_db"].values[in_band].min())
+                lines.append(f"Worst in-band: XPD_int {worst_xpd:.2f} dB, "
+                             f"n=0 level {worst_n0:.2f} dB")
+            else:
+                lines.append("No frequencies are in band.")
+            verdict = "PASS" if report.attrs.get("all_pass") else "FAIL"
+            lines.append(f"Requirements: {verdict}")
+        else:
+            worst_xpd = float(report["xpd_int_db"].values.min())
+            worst_n0 = float(report["n0_level_db"].values.min())
+            lines.append(f"Worst over all frequencies: XPD_int {worst_xpd:.2f} dB, "
+                         f"n=0 level {worst_n0:.2f} dB")
+        return "\n".join(lines)
+
+    def crosspol_dataframe(self):
+        """Flat per-frequency DataFrame of the last report, with one column per azimuthal mode."""
+        report = self.crosspol_report
+        if report is None:
+            return None
+        scalars = report.drop_vars("mode_power_rel_db")
+        if "n" in scalars.coords:
+            scalars = scalars.drop_vars("n")
+        df = scalars.to_dataframe()
+        modes = report["mode_power_rel_db"]
+        for n in modes["n"].values:
+            df[f"mode_n{int(n)}_rel_db"] = modes.sel(n=n).values
+        df.attrs = {}
+        return df
+
+    def on_export_crosspol_csv(self):
+        """Write the last report to CSV via a save dialog."""
+        df = self.crosspol_dataframe()
+        if df is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Cross-Pol Metrics", "crosspol_metrics.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        try:
+            df.to_csv(path)
+        except OSError as e:
+            self.show_crosspol_error(f"Could not write {path}: {e}")
+            logger.error("Cross-pol CSV export failed: %s", e)
 
     # Getter methods
     def _set_all_swe_frequencies(self, state):
