@@ -767,9 +767,18 @@ def plot_pattern_statistics(
             nearest_freq, freq_idx = find_nearest(pattern.frequencies, frequency)
             selected_frequency = nearest_freq
         
-        # Get all phi angles
-        phi_angles = pattern.phi_angles
-        
+        # Honour a phi selection. Statistics used to be computed over every cut
+        # in the pattern regardless of what the user had selected, so choosing
+        # 3 of 72 cuts still gave statistics over all 72.
+        all_phi = pattern.phi_angles
+        if phi is None:
+            phi_indices = np.arange(len(all_phi))
+        else:
+            wanted = np.atleast_1d(np.asarray(phi, dtype=float))
+            phi_indices = np.unique([int(np.argmin(np.abs(all_phi - value)))
+                                     for value in wanted])
+        phi_angles = all_phi[phi_indices]
+
         # Extract data based on value_type
         if value_type == 'gain':
             # Shape: [theta, phi]
@@ -780,7 +789,9 @@ def plot_pattern_statistics(
             data = pattern.get_axial_ratio()[freq_idx]
         else:
             raise ValueError(f"Invalid value_type: {value_type}")
-            
+
+        data = np.asarray(data)[:, phi_indices]
+
         dimension_label = f"φ angles ({len(phi_angles)})"
         dimension_values = phi_angles
         
@@ -823,15 +834,29 @@ def plot_pattern_statistics(
     # When statistic_over='frequency', dimension represents different frequencies
     all_data = data.T if statistic_over == 'phi' else data
     
-    # Calculate statistics across the dimension (phi or frequency)
-    mean_data = np.mean(all_data, axis=0)
+    # Calculate statistics across the dimension (phi or frequency).
+    #
+    # Mean and RMS are computed on linear power and converted back, because
+    # averaging decibels gives the geometric mean of power: one null in one cut
+    # (which is -300 dB, not a small number) drags the "mean pattern" down by
+    # tens of dB and the result describes no physical quantity. Median, min,
+    # max and the percentiles are order statistics, so they are the same in
+    # either domain and are taken directly. The standard deviation stays in dB,
+    # where "spread in dB" is what it is normally read as.
+    if value_type == 'gain':
+        linear_power = 10.0 ** (np.asarray(all_data, dtype=float) / 10.0)
+        with np.errstate(divide='ignore'):
+            mean_data = 10.0 * np.log10(np.mean(linear_power, axis=0))
+            rms_data = 10.0 * np.log10(np.sqrt(np.mean(linear_power ** 2, axis=0)))
+    else:
+        # Phase and axial ratio are not powers; average them as given.
+        mean_data = np.mean(all_data, axis=0)
+        rms_data = np.sqrt(np.mean(all_data ** 2, axis=0))
+
     median_data = np.median(all_data, axis=0)
     std_data = np.std(all_data, axis=0)
     min_data = np.min(all_data, axis=0)
     max_data = np.max(all_data, axis=0)
-    
-    # For RMS, we need to square values, mean, then sqrt
-    rms_data = np.sqrt(np.mean(all_data**2, axis=0))
 
     
     # Calculate percentiles if needed

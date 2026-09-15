@@ -50,6 +50,11 @@ class AntennaPatternWidget(QMainWindow):
         # Restore the window geometry and dock arrangement saved on last exit
         self.load_settings()
 
+        # After the restore, because restoreState() brings back whatever was
+        # visible last time. The 3D view is still a "Coming Soon" placeholder,
+        # so it is not offered as a tab.
+        self.plot_3d_dock.setVisible(False)
+
     def setup_docks(self):
         """Create and arrange dock widgets with icon sidebar navigation."""
 
@@ -94,6 +99,9 @@ class AntennaPatternWidget(QMainWindow):
 
         # Tabify the others on top of it
         self.tabifyDockWidget(self.plot_2d_dock, self.plot_3d_dock)
+        # The 3D view is a placeholder ("Coming Soon"), so it is not offered as
+        # a tab until it is implemented.
+        self.plot_3d_dock.setVisible(False)
         self.tabifyDockWidget(self.plot_2d_dock, self.data_dock)
         self.tabifyDockWidget(self.plot_2d_dock, self.plot_nearfield_dock)
 
@@ -167,7 +175,8 @@ class AntennaPatternWidget(QMainWindow):
         # Show/hide docks
         self.left_panel_dock.setVisible(True)
         self.plot_2d_dock.setVisible(True)
-        self.plot_3d_dock.setVisible(True)
+        # The 3D view is not implemented yet, so it is not offered as a tab.
+        self.plot_3d_dock.setVisible(False)
         self.data_dock.setVisible(True)
         self.plot_nearfield_dock.setVisible(True)
 

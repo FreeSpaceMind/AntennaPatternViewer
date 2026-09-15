@@ -203,7 +203,14 @@ class ExportWidget(QWidget):
                     "Please calculate SWE in the Analysis tab before exporting to SPH format."
                 )
             
-            # Export the first available SWE (user has already calculated the one they want)
-            freq = list(pattern.swe.keys())[0]
-            swe = pattern.swe[freq]
+            # Match the frequency selected in the View panel when one of the
+            # expanded frequencies is selected; otherwise take the only/first.
+            available = np.asarray(list(pattern.swe.keys()), dtype=float)
+            selected = self.data_model.get_view_param('selected_frequencies')
+            if selected:
+                freq_key = list(pattern.swe.keys())[
+                    int(np.argmin(np.abs(available - float(selected[0]))))]
+            else:
+                freq_key = list(pattern.swe.keys())[0]
+            swe = pattern.swe[freq_key]
             write_ticra_sph(swe, file_path)

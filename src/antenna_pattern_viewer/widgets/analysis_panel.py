@@ -519,8 +519,11 @@ class AnalysisPanel(QWidget):
             # Get the SWE object from the pattern
             pattern = self.current_pattern
 
-            # Get the SWE object for the first (or selected) frequency
-            freq = list(pattern.swe.keys())[0]
+            # Use the frequency the combo selects, not an arbitrary dict key
+            freq = self.resolve_swe_frequency(pattern)
+            if freq is None:
+                self.nf_results.setText("No spherical wave expansion available.")
+                return
             swe = pattern.swe[freq]
 
             if surface_type == "spherical":
@@ -556,7 +559,8 @@ class AnalysisPanel(QWidget):
                     'theta': theta_deg,
                     'phi': phi_deg,
                     'radius': params['radius'],
-                    'is_spherical': True
+                    'is_spherical': True,
+                    'frequency': freq
                 }
 
             else:  # planar
@@ -591,7 +595,8 @@ class AnalysisPanel(QWidget):
                     'x_extent': params['x_extent'],
                     'y_extent': params['y_extent'],
                     'z_distance': params['z_distance'],
-                    'is_spherical': False
+                    'is_spherical': False,
+                    'frequency': freq
                 }
 
             # Store data
@@ -701,6 +706,8 @@ class AnalysisPanel(QWidget):
         """Display near field calculation results."""
         surface_type = "spherical" if nf_data.get('is_spherical', True) else "planar"
         result_text = f"Near Field Calculated ({surface_type}):\n"
+        if nf_data.get('frequency'):
+            result_text += f"Frequency: {nf_data['frequency'] / 1e9:.3f} GHz\n"
 
         if surface_type == "spherical":
             result_text += f"Radius: {nf_data['radius']:.4f} m\n"
@@ -947,6 +954,22 @@ class AnalysisPanel(QWidget):
             logger.error("Cross-pol CSV export failed: %s", e)
 
     # Getter methods
+    def resolve_swe_frequency(self, pattern):
+        """
+        The SWE frequency to use, honouring the frequency combo.
+
+        Near-field evaluation and SPH export used to take an arbitrary first
+        dictionary key, so selecting a frequency had no effect on either.
+        """
+        if not getattr(pattern, 'swe', None):
+            return None
+        available = list(pattern.swe.keys())
+        wanted = self.get_swe_frequency()
+        if wanted is None:
+            return available[0]
+        import numpy as np
+        return available[int(np.argmin(np.abs(np.asarray(available, float) - float(wanted))))]
+
     def get_swe_frequency(self):
         """Get selected frequency for SWE."""
         if self.current_pattern is None or self.swe_freq_combo.currentIndex() < 0:

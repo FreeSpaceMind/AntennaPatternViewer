@@ -17,6 +17,10 @@ from PyQt6.QtCore import pyqtSignal
 
 from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class PlotWidget(QWidget):
     """Widget containing matplotlib canvas and plot formatting controls."""
@@ -223,6 +227,15 @@ class PlotWidget(QWidget):
         # Update control labels and visibility based on plot format
         self.update_controls_for_plot_format(format_changing)
 
+        # Axis limits describe the pattern they were taken from. Keeping them
+        # across a different pattern leaves a narrow-beam pattern drawn on a
+        # +/-180 degree axis, so they are dropped when the pattern changes.
+        pattern_key = id(pattern) if pattern is not None else None
+        if pattern_key != getattr(self, '_limits_pattern_key', None):
+            self.clear_saved_limits()
+            self._limits_pattern_key = pattern_key
+            preserve_limits = False
+
         # Save current matplotlib axis limits before clearing (skip if resetting)
         if preserve_limits and self.figure.axes:
             ax = self.figure.axes[0]
@@ -258,9 +271,11 @@ class PlotWidget(QWidget):
                     statistic_over = 'phi'
                     freq_for_stats = frequencies if isinstance(frequencies, (int, float)) else frequencies[0]
                 
-                phi_for_stats = None if statistic_over == 'phi' else (
+                # Pass the selected cuts through for statistic_over='phi' too,
+                # so the statistics describe what the user chose.
+                phi_for_stats = (phi_angles if statistic_over == 'phi' else (
                     phi_angles if isinstance(phi_angles, (int, float)) else phi_angles[0]
-                )
+                ))
                 
                 plot_pattern_statistics(
                     pattern=pattern,
@@ -332,7 +347,10 @@ class PlotWidget(QWidget):
             self.ax.set_xlim(0, 1)
             self.ax.set_ylim(0, 1)
             self.ax.axis('off')
-            print(f"Plotting error: {e}")
+            # Do not let the 0-1 placeholder limits be captured and then pinned
+            # onto the next successful plot.
+            self.clear_saved_limits()
+            logger.exception("Plotting error: %s", e)
             import traceback
             traceback.print_exc()
         
@@ -638,6 +656,12 @@ class PlotWidget(QWidget):
             return
         if new_min != new_max:
             setter(new_min, new_max)
+
+    def clear_saved_limits(self):
+        """Forget the remembered axis limits so the next plot auto-scales."""
+        for key in self.current_matplotlib_limits:
+            for axis in self.current_matplotlib_limits[key]:
+                self.current_matplotlib_limits[key][axis] = None
 
     def update_plot_formatting(self):
         """Update plot formatting without replotting data."""

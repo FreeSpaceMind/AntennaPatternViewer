@@ -70,7 +70,7 @@ class Plot2DWidget(QWidget):
             return
 
         # Get view parameters from model
-        params = self.data_model._view_params
+        params = self.data_model.get_all_view_params()
 
         # Extract parameters
         frequencies = params.get('selected_frequencies', [])
