@@ -293,6 +293,14 @@ class ProcessingPanel(QWidget):
         mars_row.addStretch()
         layout.addWidget(mars_group)
 
+        # Pipeline errors: a failing step rolls itself back, and the reason
+        # belongs in front of the user rather than only in the log.
+        self.processing_error = QLabel("")
+        self.processing_error.setWordWrap(True)
+        self.processing_error.setStyleSheet("color: #c00000; font-size: 9pt;")
+        self.processing_error.setVisible(False)
+        layout.addWidget(self.processing_error)
+
         # Add stretch
         layout.addStretch()
 
@@ -310,9 +318,26 @@ class ProcessingPanel(QWidget):
         # Initially disable processing controls
         self.update_processing_controls_state()
 
+    def show_processing_error(self, message):
+        """Display a processing pipeline failure; the step has been rolled back."""
+        self.processing_error.setText(
+            f"Processing step failed and was switched off: {message}")
+        self.processing_error.setVisible(True)
+
+    def clear_processing_error(self):
+        """Hide any previous processing failure message."""
+        self.processing_error.clear()
+        self.processing_error.setVisible(False)
+
     def connect_signals(self):
         """Connect to data model signals."""
         self.data_model.pattern_loaded.connect(self.on_pattern_loaded)
+        self.data_model.processing_failed.connect(self.show_processing_error)
+        # pattern_modified fires after the model has settled on a new state,
+        # including when switching instances restores a saved one, so the
+        # controls are mirrored from there rather than from pattern_loaded
+        # alone (which runs before the restore).
+        self.data_model.pattern_modified.connect(self.on_pattern_modified)
 
     def on_pattern_loaded(self, pattern):
         """Handle pattern loaded event."""
@@ -323,6 +348,11 @@ class ProcessingPanel(QWidget):
             return
 
         self.current_pattern = pattern
+
+        # Mirror the model's processing state, which is per pattern instance:
+        # otherwise the checkboxes claim steps are applied to a pattern that
+        # does not have them.
+        self.sync_processing_controls()
 
         # Update frequency combo for phase center
         self.pc_freq_combo.clear()
@@ -374,15 +404,96 @@ class ProcessingPanel(QWidget):
             self.average_spheres_btn.setEnabled(False)
             self.dual_sphere_status.setText("")
 
+    def on_pattern_modified(self, pattern):
+        """Mirror the model's settled processing state and clear any error."""
+        self.current_pattern = pattern
+        self.clear_processing_error()
+        self.sync_processing_controls()
+
+    def sync_processing_controls(self):
+        """
+        Set every processing control from the data model's current state.
+
+        Signals are blocked throughout: these toggles are what drive the
+        pipeline, so setting them here would re-apply what is already applied.
+        """
+        state = self.data_model._processing_state
+
+        # Polarization combo follows the pattern itself, since the pipeline
+        # may leave it at the value the file was loaded with.
+        pattern = self.data_model.pattern
+        if pattern is not None:
+            pol_map = {
+                'theta': 0, 'phi': 1,
+                'x': 2, 'l3x': 2,
+                'y': 3, 'l3y': 3,
+                'rhcp': 4, 'rh': 4, 'r': 4,
+                'lhcp': 5, 'lh': 5, 'l': 5
+            }
+            self.polarization_combo.blockSignals(True)
+            self.polarization_combo.setCurrentIndex(
+                pol_map.get(str(pattern.polarization).lower(), 0))
+            self.polarization_combo.blockSignals(False)
+
+        controls = {
+            self.apply_phase_center_check: state.get('phase_center_translation') is not None,
+            self.apply_mars_check: state.get('mars_max_extent') is not None,
+            self.apply_theta_shift_check: state.get('theta_origin_shift') is not None,
+            self.apply_phi_shift_check: state.get('phi_origin_shift') is not None,
+            self.apply_rotation_check: state.get('rotation') is not None,
+            self.apply_normalization_check: state.get('amplitude_normalization') is not None,
+            self.apply_boresight_norm_check: bool(state.get('boresight_normalization')),
+        }
+        for widget in controls:
+            widget.blockSignals(True)
+        try:
+            for widget, checked in controls.items():
+                widget.setChecked(checked)
+
+            if state.get('theta_origin_shift') is not None:
+                self.theta_shift_spin.blockSignals(True)
+                self.theta_shift_spin.setValue(state['theta_origin_shift'])
+                self.theta_shift_spin.blockSignals(False)
+            if state.get('phi_origin_shift') is not None:
+                self.phi_shift_spin.blockSignals(True)
+                self.phi_shift_spin.setValue(state['phi_origin_shift'])
+                self.phi_shift_spin.blockSignals(False)
+            if state.get('rotation') is not None:
+                alpha, beta, gamma, method = state['rotation']
+                for spin, value in ((self.rot_alpha_spin, alpha),
+                                    (self.rot_beta_spin, beta),
+                                    (self.rot_gamma_spin, gamma)):
+                    spin.blockSignals(True)
+                    spin.setValue(value)
+                    spin.blockSignals(False)
+                self.rot_interp_combo.blockSignals(True)
+                self.rot_interp_combo.setCurrentText(method.capitalize())
+                self.rot_interp_combo.blockSignals(False)
+                self._update_rotation_result()
+        finally:
+            for widget in controls:
+                widget.blockSignals(False)
+
     def reset_processing_state(self):
-        """Reset checkboxes when loading new pattern."""
-        self.apply_phase_center_check.setChecked(False)
-        self.apply_mars_check.setChecked(False)
-        self.apply_theta_shift_check.setChecked(False)
-        self.apply_phi_shift_check.setChecked(False)
-        self.apply_rotation_check.setChecked(False)
-        self.apply_normalization_check.setChecked(False)
-        self.apply_boresight_norm_check.setChecked(False)
+        """
+        Clear every processing checkbox without re-triggering the pipeline.
+
+        Signals are blocked because these toggles are what drive
+        apply_processing; unblocked, resetting them would emit a disable for
+        each step against a model that has already reset itself.
+        """
+        checks = [self.apply_phase_center_check, self.apply_mars_check,
+                  self.apply_theta_shift_check, self.apply_phi_shift_check,
+                  self.apply_rotation_check, self.apply_normalization_check,
+                  self.apply_boresight_norm_check]
+        for check in checks:
+            check.blockSignals(True)
+        try:
+            for check in checks:
+                check.setChecked(False)
+        finally:
+            for check in checks:
+                check.blockSignals(False)
 
     # === EVENT HANDLERS ===
 

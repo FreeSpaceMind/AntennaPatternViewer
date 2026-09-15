@@ -212,6 +212,53 @@ class ViewPanel(QWidget):
     def connect_signals(self):
         """Connect to data model signals."""
         self.data_model.pattern_loaded.connect(self.on_pattern_loaded)
+        # Processing can change the theta/phi grids (a coordinate-format change
+        # moves phi from 0-180 to 0-360), so the selection lists must refresh
+        # on pattern_modified too or they offer angles that no longer exist.
+        self.data_model.pattern_modified.connect(self.on_pattern_modified)
+
+    def on_pattern_modified(self, pattern):
+        """
+        Refresh the selection lists after processing changed the grids.
+
+        The previous frequency and phi selections are re-applied by nearest
+        value, so a coordinate-format change keeps the user looking at roughly
+        the same cuts instead of resetting to the default.
+        """
+        if pattern is None:
+            return
+        previous_freqs = self.get_selected_frequencies()
+        previous_phi = self.get_selected_phi_angles()
+
+        self.on_pattern_loaded(pattern)
+
+        self._reselect_nearest(self.frequency_list, pattern.frequencies, previous_freqs)
+        try:
+            phi_angles = pattern.phi_angles
+        except Exception:
+            phi_angles = None
+        if phi_angles is not None:
+            self._reselect_nearest(self.phi_list, phi_angles, previous_phi)
+
+    @staticmethod
+    def _reselect_nearest(list_widget, available, previous_values):
+        """Select the rows of `available` nearest to each previously chosen value."""
+        import numpy as np
+
+        if list_widget is None or previous_values is None or len(previous_values) == 0:
+            return
+        available = np.asarray(available, dtype=float)
+        if available.size == 0:
+            return
+        wanted = {int(np.argmin(np.abs(available - float(v)))) for v in previous_values}
+        list_widget.blockSignals(True)
+        try:
+            for row in range(list_widget.count()):
+                item = list_widget.item(row)
+                if item is not None:
+                    item.setSelected(row in wanted)
+        finally:
+            list_widget.blockSignals(False)
 
     def on_pattern_loaded(self, pattern):
         """Handle pattern loaded event."""

@@ -25,7 +25,15 @@ class PatternInstance:
     
     # View settings (stored for recall when pattern becomes active)
     view_params: Dict[str, Any] = field(default_factory=dict)
-    
+
+    # Processing settings, saved and restored with the instance so that
+    # switching between patterns does not discard what was applied to each.
+    processing_state: Dict[str, Any] = field(default_factory=dict)
+
+    # Result of applying processing_state to `pattern`. Kept so that comparison
+    # plots show the same curve for an instance whether or not it is active.
+    processed_pattern: Any = None
+
     # Processing history/state
     processing_history: list = field(default_factory=list)
     
@@ -47,10 +55,13 @@ class PatternInstance:
         """
         import copy
         new_instance = PatternInstance(
-            pattern=self.pattern,  # Reference same pattern initially
+            # Copy the pattern so the clone can be processed independently;
+            # sharing the object would make both instances change together.
+            pattern=self.pattern.copy() if self.pattern is not None else None,
             source_file=self.source_file,
             display_name=new_name or f"{self.display_name} (copy)",
             view_params=copy.deepcopy(self.view_params),
+            processing_state=copy.deepcopy(self.processing_state),
             processing_history=copy.deepcopy(self.processing_history),
             notes=self.notes
         )

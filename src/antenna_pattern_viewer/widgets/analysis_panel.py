@@ -387,6 +387,9 @@ class AnalysisPanel(QWidget):
     def connect_signals(self):
         """Connect to data model signals."""
         self.data_model.pattern_loaded.connect(self.on_pattern_loaded)
+        # Follow processing too: SWE and near-field should be computed on the
+        # pattern the user is looking at, not the one last read from file.
+        self.data_model.pattern_modified.connect(self.on_pattern_loaded)
 
     def on_pattern_loaded(self, pattern):
         """Handle pattern loaded event."""
@@ -460,7 +463,9 @@ class AnalysisPanel(QWidget):
             self.calculate_swe_btn.setText("Calculating...")
 
             # Create and configure worker thread
-            self.swe_worker = SWEWorker(self.current_pattern, frequency,
+            # Hand the worker its own copy: processing can replace the model's
+            # pattern while the calculation is running.
+            self.swe_worker = SWEWorker(self.current_pattern.copy(), frequency,
                                         nmax=nmax, mmax=mmax)
 
             # Connect signals
