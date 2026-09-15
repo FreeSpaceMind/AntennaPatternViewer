@@ -320,10 +320,27 @@ When multiple processing steps are enabled simultaneously, they are applied in t
 1. Coordinate format transformation
 2. Amplitude normalization
 3. Boresight normalization
-4. Theta origin shift
-5. Phi origin shift
+4. Theta origin shift (measurement correction)
+5. Phi origin shift (measurement correction)
 6. Phase center translation
-7. MARS
+7. MARS (measurement correction)
+8. Rotation (antenna orientation)
+
+Measurement corrections run first, in the frame the data was measured in. Rotation runs last, after the phase center has been moved to the origin, because a rotation is only as accurate as the sampling and a pattern whose phase center is far from the origin varies quickly in phase between samples.
+
+### Measurement Correction versus Rotation
+
+Two groups on this panel move the pattern around in angle, and they are for different jobs:
+
+| | Origin Shift (Measurement Correction) | Rotation (Antenna Orientation) |
+|---|---|---|
+| **Purpose** | Undo a positioner or mounting offset so that the measured $\theta = 0$, $\phi = 0$ line up with the antenna's true boresight and reference plane | Point the antenna somewhere other than $+z$, as it will be mounted |
+| **What it does** | Re-labels the measured angle axes: the $\phi$ shift renumbers the cuts, the $\theta$ shift slides each $\phi$ cut along its own $\theta$ axis | Rigid 3D rotation of the whole pattern about the origin, field vectors included |
+| **Is it a rotation of the antenna?** | No. Every cut is shifted along a different great circle, so the result is not a rigid rotation and the boresight does not land at a definite $(\theta_0, \phi_0)$ | Yes |
+| **Typical magnitude** | A fraction of a degree to a few degrees | Any angle |
+| **Library call** | `shift_theta_origin`, `shift_phi_origin` | `rotate` |
+
+If you want to see how the pattern looks with the antenna tilted, use **Rotation**. If the measured pattern peak is a little off $\theta = 0$ because of how the antenna sat on the positioner, use **Origin Shift**.
 
 ### Polarization
 
@@ -407,14 +424,26 @@ When enabled, each phi cut is individually scaled so that all cuts have the same
 
 This is useful for correcting systematic per-cut gain and phase offsets in measured data.
 
-### Origin Shift
+### Origin Shift (Measurement Correction)
 
 | Control | Range | Step | Description |
 |---------|-------|------|-------------|
-| **Theta** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Shifts the theta origin by the specified offset |
-| **Phi** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Shifts the phi origin by the specified offset |
+| **Theta** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Shifts the theta origin of every $\phi$ cut by the specified offset (interpolated along the cut) |
+| **Phi** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Adds the offset to the $\phi$ coordinate of every cut |
 
-The checkbox enables/disables the shift. The spinbox value is applied live when the checkbox is enabled; changing the spinbox value while enabled immediately updates the pattern.
+This is a measurement correction for positioner or mounting offsets, not a rotation of the antenna (see *Measurement Correction versus Rotation* above). The checkbox enables/disables the shift. The spinbox value is applied live when the checkbox is enabled; changing the spinbox value while enabled immediately updates the pattern.
+
+### Rotation (Antenna Orientation)
+
+| Control | Range | Description |
+|---------|-------|-------------|
+| **Apply** checkbox | | Enables the rotation; angle changes are applied live while checked |
+| **$\alpha$** | $[-180^\circ, 180^\circ]$ | Azimuth about $y$; $+\alpha$ tilts the boresight toward $+x$ ($\phi = 0^\circ$) |
+| **$\beta$** | $[-180^\circ, 180^\circ]$ | Elevation about $x$; $+\beta$ tilts the boresight toward $+y$ ($\phi = 90^\circ$) |
+| **$\gamma$** | $[-180^\circ, 180^\circ]$ | Roll about $z$, from $+x$ toward $+y$ |
+| **Interpolation** | Linear / Cubic | Cubic is more accurate on coarse grids but slower |
+
+The rotation is $R = R_y(\alpha)\,R_x(-\beta)\,R_z(\gamma)$ applied to the antenna: roll first, then elevation, then azimuth. The status line shows where the original boresight lands, $\theta_0 = \arccos(\cos\alpha\cos\beta)$, $\phi_0 = \operatorname{atan2}(\sin\beta, \sin\alpha\cos\beta)$. The rotated pattern is resampled on the pattern's own grid, in its own coordinate format, so directions that rotate outside a partial-sphere measurement come back as zero. See *Isometric Rotation* under Pattern Operations in the Theory section for the details.
 
 ### Phase Center
 

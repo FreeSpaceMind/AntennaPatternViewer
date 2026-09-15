@@ -24,6 +24,7 @@ class ProcessingPanel(QWidget):
     coordinate_format_changed = pyqtSignal(str)  # 'central' or 'sided'
     shift_theta_origin_signal = pyqtSignal(float)  # theta_offset in degrees
     shift_phi_origin_signal = pyqtSignal(float)  # phi_offset in degrees
+    rotate_signal = pyqtSignal(float, float, float, str)  # alpha, beta, gamma (deg), interpolation
     normalize_amplitude_signal = pyqtSignal(str)  # normalization type
     normalize_boresight_signal = pyqtSignal(bool)  # enabled
     split_spheres_signal = pyqtSignal()
@@ -125,9 +126,17 @@ class ProcessingPanel(QWidget):
         layout.addWidget(norm_group)
 
         # === ORIGIN SHIFT ===
-        origin_group = QGroupBox("Origin Shift")
+        origin_group = QGroupBox("Origin Shift (Measurement Correction)")
         origin_layout = QVBoxLayout(origin_group)
         origin_layout.setSpacing(4)
+
+        origin_note = QLabel(
+            "Re-zeroes the measured \u03b8/\u03c6 axes to correct a positioner or "
+            "mounting offset. Each \u03c6 cut is shifted along its own axis. "
+            "This does not rotate the antenna; use Rotation for that.")
+        origin_note.setWordWrap(True)
+        origin_note.setStyleSheet("font-size: 9pt; color: #666;")
+        origin_layout.addWidget(origin_note)
 
         # Theta shift
         theta_row = QHBoxLayout()
@@ -160,6 +169,60 @@ class ProcessingPanel(QWidget):
         origin_layout.addLayout(phi_row)
 
         layout.addWidget(origin_group)
+
+        # === ROTATION (ANTENNA ORIENTATION) ===
+        rot_group = QGroupBox("Rotation (Antenna Orientation)")
+        rot_layout = QVBoxLayout(rot_group)
+        rot_layout.setSpacing(4)
+
+        rot_note = QLabel(
+            "Rigid 3D rotation of the antenna about the origin, field vectors "
+            "included. Use this to change where the boresight points. "
+            "+\u03b1 tilts the boresight toward +x, +\u03b2 toward +y, "
+            "\u03b3 rolls about z from +x toward +y.")
+        rot_note.setWordWrap(True)
+        rot_note.setStyleSheet("font-size: 9pt; color: #666;")
+        rot_layout.addWidget(rot_note)
+
+        angles_row = QHBoxLayout()
+        self.apply_rotation_check = QCheckBox("Apply")
+        self.apply_rotation_check.toggled.connect(self.on_apply_rotation_toggled)
+        angles_row.addWidget(self.apply_rotation_check)
+        self.rot_alpha_spin = QDoubleSpinBox()
+        self.rot_beta_spin = QDoubleSpinBox()
+        self.rot_gamma_spin = QDoubleSpinBox()
+        for label, spin, tip in (
+                ("\u03b1:", self.rot_alpha_spin, "Azimuth about y: +\u03b1 tilts boresight toward +x"),
+                ("\u03b2:", self.rot_beta_spin, "Elevation about x: +\u03b2 tilts boresight toward +y"),
+                ("\u03b3:", self.rot_gamma_spin, "Roll about z, from +x toward +y")):
+            angles_row.addWidget(QLabel(label))
+            spin.setRange(-180.0, 180.0)
+            spin.setValue(0.0)
+            spin.setSuffix(" deg")
+            spin.setDecimals(1)
+            spin.setToolTip(tip)
+            spin.valueChanged.connect(self.on_rotation_value_changed)
+            angles_row.addWidget(spin)
+        angles_row.addStretch()
+        rot_layout.addLayout(angles_row)
+
+        interp_row = QHBoxLayout()
+        interp_row.addWidget(QLabel("Interpolation:"))
+        self.rot_interp_combo = QComboBox()
+        self.rot_interp_combo.addItems(["Linear", "Cubic"])
+        self.rot_interp_combo.setToolTip(
+            "Cubic is more accurate on coarse grids but slower")
+        self.rot_interp_combo.currentTextChanged.connect(self.on_rotation_value_changed)
+        interp_row.addWidget(self.rot_interp_combo)
+        interp_row.addStretch()
+        rot_layout.addLayout(interp_row)
+
+        self.rotation_result = QLabel("")
+        self.rotation_result.setStyleSheet("font-size: 9pt; color: #666;")
+        rot_layout.addWidget(self.rotation_result)
+        self._update_rotation_result()
+
+        layout.addWidget(rot_group)
 
         # === PHASE CENTER ===
         pc_group = QGroupBox("Phase Center")
@@ -303,6 +366,7 @@ class ProcessingPanel(QWidget):
         self.apply_mars_check.setEnabled(has_pattern)
         self.apply_theta_shift_check.setEnabled(has_pattern)
         self.apply_phi_shift_check.setEnabled(has_pattern)
+        self.apply_rotation_check.setEnabled(has_pattern)
         self.apply_normalization_check.setEnabled(has_pattern)
         self.apply_boresight_norm_check.setEnabled(has_pattern)
         if not has_pattern:
@@ -316,6 +380,7 @@ class ProcessingPanel(QWidget):
         self.apply_mars_check.setChecked(False)
         self.apply_theta_shift_check.setChecked(False)
         self.apply_phi_shift_check.setChecked(False)
+        self.apply_rotation_check.setChecked(False)
         self.apply_normalization_check.setChecked(False)
         self.apply_boresight_norm_check.setChecked(False)
 
@@ -381,6 +446,38 @@ class ProcessingPanel(QWidget):
             return
         if self.apply_phi_shift_check.isChecked():
             self.shift_phi_origin_signal.emit(value)
+
+    def get_rotation(self):
+        """(alpha, beta, gamma) in degrees and the interpolation method name."""
+        return (self.rot_alpha_spin.value(), self.rot_beta_spin.value(),
+                self.rot_gamma_spin.value(), self.rot_interp_combo.currentText().lower())
+
+    def _update_rotation_result(self):
+        """Show where the original boresight lands for the current angles."""
+        import math
+        alpha, beta, _, _ = self.get_rotation()
+        a, b = math.radians(alpha), math.radians(beta)
+        theta0 = math.degrees(math.acos(max(-1.0, min(1.0, math.cos(a) * math.cos(b)))))
+        if theta0 < 1e-9:
+            self.rotation_result.setText("Boresight stays at \u03b8 = 0\u00b0")
+        else:
+            phi0 = math.degrees(math.atan2(math.sin(b), math.sin(a) * math.cos(b))) % 360.0
+            self.rotation_result.setText(
+                f"Boresight \u2192 \u03b8 = {theta0:.1f}\u00b0, \u03c6 = {phi0:.1f}\u00b0")
+
+    def on_apply_rotation_toggled(self, checked):
+        """Handle apply rotation checkbox toggle."""
+        if not self.current_pattern:
+            return
+        self.rotate_signal.emit(*self.get_rotation())
+
+    def on_rotation_value_changed(self, _value=None):
+        """Handle rotation angle or interpolation change."""
+        self._update_rotation_result()
+        if not self.current_pattern:
+            return
+        if self.apply_rotation_check.isChecked():
+            self.rotate_signal.emit(*self.get_rotation())
 
     def on_find_phase_center(self):
         """Handle find phase center button click."""

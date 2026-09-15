@@ -172,6 +172,7 @@ class LeftPanelWidget(QWidget):
         self.processing_panel.coordinate_format_changed.connect(self.on_coordinate_format_changed)
         self.processing_panel.shift_theta_origin_signal.connect(self.on_shift_theta_origin)
         self.processing_panel.shift_phi_origin_signal.connect(self.on_shift_phi_origin)
+        self.processing_panel.rotate_signal.connect(self.on_rotate)
         self.processing_panel.normalize_amplitude_signal.connect(self.on_normalize_amplitude)
         self.processing_panel.normalize_boresight_signal.connect(self.on_normalize_boresight)
         self.processing_panel.split_spheres_signal.connect(self.on_split_spheres)
@@ -325,6 +326,27 @@ class LeftPanelWidget(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to toggle theta origin shift: {e}", exc_info=True)
+
+    def on_rotate(self, alpha, beta, gamma, method):
+        """Handle rotation toggle / angle change (antenna orientation)."""
+        if self.data_model.original_pattern is None:
+            return
+
+        try:
+            is_checked = self.processing_panel.apply_rotation_check.isChecked()
+
+            if is_checked:
+                self.data_model.set_rotation((alpha, beta, gamma, method))
+                logger.info(f"Rotation enabled: alpha={alpha}, beta={beta}, gamma={gamma} deg ({method})")
+            else:
+                self.data_model.set_rotation(None)
+                logger.info("Rotation disabled")
+
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
+            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
+
+        except Exception as e:
+            logger.error(f"Failed to apply rotation: {e}", exc_info=True)
 
     def on_shift_phi_origin(self, phi_offset):
         """Handle phi origin shift toggle."""

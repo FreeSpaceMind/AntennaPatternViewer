@@ -40,6 +40,7 @@ class PatternDataModel(QObject):
             'phi_origin_shift': None,
             'amplitude_normalization': None,
             'boresight_normalization': False,
+            'rotation': None,  # (alpha, beta, gamma, method) or None
         }
         
         # View parameters
@@ -92,6 +93,7 @@ class PatternDataModel(QObject):
             'phi_origin_shift': None,
             'amplitude_normalization': None,
             'boresight_normalization': False,
+            'rotation': None,
         }
         
         # Reset view parameters when loading new pattern
@@ -141,6 +143,14 @@ class PatternDataModel(QObject):
         # Apply MARS (if any)
         if self._processing_state['mars_max_extent'] is not None:
             processed.apply_mars(self._processing_state['mars_max_extent'])
+
+        # Apply rotation last: it changes the antenna orientation, after all
+        # measurement corrections (origin shifts, MARS) have been applied in
+        # the measurement frame and the phase center has been moved to the
+        # origin.
+        if self._processing_state['rotation'] is not None:
+            alpha, beta, gamma, method = self._processing_state['rotation']
+            processed.rotate(alpha, beta, gamma, method=method)
         
         # Update current pattern
         self._pattern = processed
@@ -399,6 +409,19 @@ class PatternDataModel(QObject):
         self._processing_state['phi_origin_shift'] = phi_offset
         self.apply_processing()
         self.processing_applied.emit("phi_origin_shift")
+
+    def set_rotation(self, rotation: Optional[tuple]):
+        """
+        Enable or disable a rigid rotation of the antenna.
+
+        Args:
+            rotation: (alpha, beta, gamma, method) with angles in degrees and
+                method an interpolation name ('linear' or 'cubic'), or None
+                to disable
+        """
+        self._processing_state['rotation'] = rotation
+        self.apply_processing()
+        self.processing_applied.emit("rotation")
 
     def set_amplitude_normalization(self, norm_type: Optional[str]):
         """
