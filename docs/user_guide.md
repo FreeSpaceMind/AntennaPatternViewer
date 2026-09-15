@@ -431,7 +431,7 @@ This is useful for correcting systematic per-cut gain and phase offsets in measu
 | **Theta** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Shifts the theta origin of every $\phi$ cut by the specified offset (interpolated along the cut) |
 | **Phi** checkbox + spinbox | $[-180^\circ, 180^\circ]$ | $0.1^\circ$ | Adds the offset to the $\phi$ coordinate of every cut |
 
-This is a measurement correction for positioner or mounting offsets, not a rotation of the antenna (see *Measurement Correction versus Rotation* above). The checkbox enables/disables the shift. The spinbox value is applied live when the checkbox is enabled; changing the spinbox value while enabled immediately updates the pattern.
+This is a measurement correction for positioner or mounting offsets, not a rotation of the antenna (see *Measurement Correction versus Rotation* above). The theta shift is carried out in central format, where each cut is a closed circle and wraps instead of clipping, and the result is mapped back onto the pattern's own grid, so it behaves the same whether the pattern is displayed in sided or central format. The checkbox enables/disables the shift. The spinbox value is applied live when the checkbox is enabled; changing the spinbox value while enabled immediately updates the pattern.
 
 ### Rotation (Antenna Orientation)
 
