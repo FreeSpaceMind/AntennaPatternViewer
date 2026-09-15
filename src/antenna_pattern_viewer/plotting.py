@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 from typing import Optional, Union, List, Tuple, Literal, Any, Dict
 
 from farfield_spherical import FarFieldSpherical, find_nearest
+import logging
+
+logger = logging.getLogger(__name__)
 
 def plot_pattern_cut(
     pattern: FarFieldSpherical,
@@ -1329,10 +1332,10 @@ def plot_pattern_2d_polar(
     # Pattern is in central format if theta has negative values and phi is half-azimuth
     is_central = (has_negative_theta and phi_is_half_azimuth)
 
-    print(f"Pattern coordinate format detected:")
-    print(f"  Theta range: {theta_min:.1f}° to {theta_max:.1f}°")
-    print(f"  Phi range: {phi_min:.1f}° to {phi_max:.1f}°")
-    print(f"  Format: {'sided' if is_sided else 'central' if is_central else 'unknown'}")
+    logger.debug(f"Pattern coordinate format detected:")
+    logger.debug(f"  Theta range: {theta_min:.1f}° to {theta_max:.1f}°")
+    logger.debug(f"  Phi range: {phi_min:.1f}° to {phi_max:.1f}°")
+    logger.debug(f"  Format: {'sided' if is_sided else 'central' if is_central else 'unknown'}")
 
     # For central format patterns, remap to sided coordinates
     # Central: theta from -max to +max, phi from 0 to ~180
@@ -1341,7 +1344,7 @@ def plot_pattern_2d_polar(
     #          sided(theta, phi) = central(-theta, phi-180) for phi >= 180
     central_format_remapped = False
     if is_central and not is_sided:
-        print("  Remapping central format to sided coordinates")
+        logger.debug("  Remapping central format to sided coordinates")
         central_format_remapped = True
         # Store original coordinates for remapping
         original_theta = theta_angles.copy()
@@ -1395,8 +1398,8 @@ def plot_pattern_2d_polar(
 
         # Verify dimensions match
         if len(original_theta) != n_data_theta or len(original_phi) != n_data_phi:
-            print(f"  Warning: Dimension mismatch")
-            print(f"  Skipping remapping, using original coordinates")
+            logger.debug(f"  Warning: Dimension mismatch")
+            logger.debug(f"  Skipping remapping, using original coordinates")
             central_format_remapped = False
         else:
             # Find theta=0 index in the original theta array
@@ -1427,7 +1430,7 @@ def plot_pattern_2d_polar(
             #
             # Physical interpretation: central(-theta, phi) represents the point
             # that would be at (|theta|, phi+180) in sided format.
-            print(f"  theta0_idx={theta0_idx}, theta at idx={original_theta[theta0_idx]:.4f}°")
+            logger.debug(f"  theta0_idx={theta0_idx}, theta at idx={original_theta[theta0_idx]:.4f}°")
 
             for i in range(n_new_theta):
                 # Get the positive theta value for this row
@@ -1442,21 +1445,21 @@ def plot_pattern_2d_polar(
                     new_data[i, n_data_phi:] = plot_data[0, :]
 
             # Debug: verify the magnitude matching
-            print(f"  Theta magnitude matching check:")
+            logger.debug(f"  Theta magnitude matching check:")
             for i in [0, 1, 5, 10]:
                 if i < n_new_theta and theta0_idx + i < n_data_theta:
                     pos_theta = original_theta[theta0_idx + i]
                     target_neg = -abs(pos_theta)
                     neg_idx = np.argmin(np.abs(original_theta - target_neg))
                     actual_neg = original_theta[neg_idx]
-                    print(f"    row {i}: pos_theta={pos_theta:+.3f}°, matched neg_theta={actual_neg:+.3f}° (diff={abs(pos_theta)-abs(actual_neg):.4f}°)")
+                    logger.debug(f"    row {i}: pos_theta={pos_theta:+.3f}°, matched neg_theta={actual_neg:+.3f}° (diff={abs(pos_theta)-abs(actual_neg):.4f}°)")
 
             # Update variables for subsequent plotting code
             theta_angles = new_theta
             phi_angles = new_phi
             plot_data = new_data
-            print(f"  Remapped - Theta: {np.min(theta_angles):.1f}° to {np.max(theta_angles):.1f}°")
-            print(f"  Remapped - Phi: {np.min(phi_angles):.1f}° to {np.max(phi_angles):.1f}°")
+            logger.debug(f"  Remapped - Theta: {np.min(theta_angles):.1f}° to {np.max(theta_angles):.1f}°")
+            logger.debug(f"  Remapped - Phi: {np.min(phi_angles):.1f}° to {np.max(phi_angles):.1f}°")
 
     # Ensure phi_angles are sorted and data columns match the sorted order
     phi_sort_idx = np.argsort(phi_angles)

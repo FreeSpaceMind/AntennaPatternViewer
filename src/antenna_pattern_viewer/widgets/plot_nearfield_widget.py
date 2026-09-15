@@ -80,6 +80,22 @@ class PlotNearFieldWidget(QWidget):
         self.near_field_data['H_y'] = H_y.reshape(shape)
         self.near_field_data['H_z'] = H_z.reshape(shape)
     
+    def _total_magnitude(self, field):
+        """
+        Total |E| or |H| on the grid.
+
+        The data dictionary can hold both the spherical triad and, for a planar
+        cut, the Cartesian one. They describe the same vector, so summing both
+        would double the power and report 3 dB high; the Cartesian triad is
+        preferred when present.
+        """
+        cartesian = [f'{field}_x', f'{field}_y', f'{field}_z']
+        spherical = [f'{field}_r', f'{field}_theta', f'{field}_phi']
+        keys = cartesian if all(k in self.near_field_data for k in cartesian) else spherical
+        magnitude_sq = sum(np.abs(self.near_field_data[k]) ** 2
+                           for k in keys if k in self.near_field_data)
+        return np.sqrt(magnitude_sq)
+
     def _update_component_list(self):
         """Update available components based on data."""
         self.component_combo.blockSignals(True)
@@ -119,31 +135,21 @@ class PlotNearFieldWidget(QWidget):
             ylabel = 'Y (m)'
 
         # Get field data
-        if component == '|E|':
-            # Total E-field magnitude
-            E_mag_sq = 0
-            for key in ['E_x', 'E_y', 'E_z', 'E_r', 'E_theta', 'E_phi']:
-                if key in self.near_field_data:
-                    E_mag_sq += np.abs(self.near_field_data[key])**2
-            field_data = np.sqrt(E_mag_sq)
-        elif component == '|H|':
-            # Total H-field magnitude
-            H_mag_sq = 0
-            for key in ['H_x', 'H_y', 'H_z', 'H_r', 'H_theta', 'H_phi']:
-                if key in self.near_field_data:
-                    H_mag_sq += np.abs(self.near_field_data[key])**2
-            field_data = np.sqrt(H_mag_sq)
+        if component in ('|E|', '|H|'):
+            field_data = self._total_magnitude(component[1])
         else:
             field_data = np.abs(self.near_field_data[component])
 
         # Convert to dB
         magnitude_db = 20 * np.log10(field_data + 1e-10)
 
-        im = ax.imshow(magnitude_db,
-                      extent=[np.min(x), np.max(x), np.min(y), np.max(y)],
-                      cmap='jet',
-                      aspect='equal',
-                      origin='lower')
+        # The grids are built with indexing='ij', so rows are the first
+        # coordinate (x, or theta). pcolormesh takes the coordinate arrays
+        # explicitly, which keeps the orientation right for non-square and
+        # asymmetric grids; imshow would show the transpose.
+        mesh_x, mesh_y = np.meshgrid(x, y, indexing='ij')
+        im = ax.pcolormesh(mesh_x, mesh_y, magnitude_db, cmap='jet', shading='auto')
+        ax.set_aspect('equal' if not is_spherical else 'auto')
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)

@@ -84,13 +84,18 @@ class PlotWidget(QWidget):
         # Normalize Checkbox
         self.normalize_check = QCheckBox("Normalize")
         self.normalize_check.setChecked(False)
-        self.normalize_check.toggled.connect(self.replot_current_data)
+        # toggled() passes the checkbox state, which would land in
+        # preserve_limits. Normalizing changes the y scale, so the old limits
+        # must not be kept.
+        self.normalize_check.toggled.connect(
+            lambda _checked: self.replot_current_data(preserve_limits=False))
         format_layout.addWidget(self.normalize_check)
 
         # Smooth checkbox (for 2D plots - bicubic interpolation)
         self.smooth_check = QCheckBox("Smooth")
         self.smooth_check.setChecked(False)
-        self.smooth_check.toggled.connect(self.replot_current_data)
+        self.smooth_check.toggled.connect(
+            lambda _checked: self.replot_current_data(preserve_limits=True))
         self.smooth_check.setVisible(False)  # Initially hidden, shown only for 2D plots
         format_layout.addWidget(self.smooth_check)
 
@@ -516,101 +521,6 @@ class PlotWidget(QWidget):
             
         return vmin, vmax
 
-    def get_colorbar_limits(self):
-        """Get colorbar limits from Z-axis controls."""
-        try:
-            vmin = float(self.z_min_edit.text()) if self.z_min_edit.text().strip() else None
-        except ValueError:
-            vmin = None
-            
-        try:
-            vmax = float(self.z_max_edit.text()) if self.z_max_edit.text().strip() else None
-        except ValueError:
-            vmax = None
-            
-        return vmin, vmax
-    
-    def apply_plot_formatting(self, ax):
-        """Apply current formatting settings to the axes."""
-        # Check if this is a polar plot
-        is_polar = hasattr(ax, 'set_theta_zero_location')
-        
-        # Grid - works for both regular and polar plots
-        ax.grid(self.grid_check.isChecked())
-        
-        if is_polar:
-            # Handle polar plot formatting
-            
-            # Colorbar visibility
-            if hasattr(self, 'current_colorbar') and self.current_colorbar:
-                self.current_colorbar.ax.set_visible(self.legend_colorbar_check.isChecked())
-                
-                # Update colorbar limits if changed
-                try:
-                    vmin, vmax = self.get_colorbar_limits()
-                    if vmin is not None or vmax is not None:
-                        mappable = self.current_colorbar.mappable
-                        current_vmin, current_vmax = mappable.get_clim()
-                        new_vmin = vmin if vmin is not None else current_vmin
-                        new_vmax = vmax if vmax is not None else current_vmax
-                        mappable.set_clim(vmin=new_vmin, vmax=new_vmax)
-                        self.current_colorbar.update_normal(mappable)
-                except (ValueError, AttributeError):
-                    pass
-            
-            # Phi (angular) limits - only if X-axis controls are visible
-            # (Skip this since we're hiding X-axis controls for 2D plots)
-            # Users can still zoom/pan with toolbar if needed
-            
-            # Theta (radial) limits
-            try:
-                theta_min = float(self.y_theta_min_edit.text()) if self.y_theta_min_edit.text().strip() else None
-                theta_max = float(self.y_theta_max_edit.text()) if self.y_theta_max_edit.text().strip() else None
-                
-                if theta_min is not None or theta_max is not None:
-                    current_limits = ax.get_ylim()
-                    new_min = theta_min if theta_min is not None else current_limits[0]
-                    new_max = theta_max if theta_max is not None else current_limits[1]
-                    ax.set_ylim(max(0, new_min), new_max)
-            except ValueError:
-                pass
-                
-        else:
-            # Handle regular plot formatting
-            
-            # Legend for 1D plots
-            if self.legend_colorbar_check.isChecked():
-                ax.legend(loc='best')
-            else:
-                legend = ax.get_legend()
-                if legend:
-                    legend.remove()
-            
-            # X-axis limits for 1D plots
-            try:
-                x_min = float(self.x_phi_min_edit.text()) if self.x_phi_min_edit.text().strip() else None
-                x_max = float(self.x_phi_max_edit.text()) if self.x_phi_max_edit.text().strip() else None
-                
-                if x_min is not None or x_max is not None:
-                    current_limits = ax.get_xlim()
-                    new_min = x_min if x_min is not None else current_limits[0]
-                    new_max = x_max if x_max is not None else current_limits[1]
-                    ax.set_xlim(new_min, new_max)
-            except ValueError:
-                pass
-            
-            # Y-axis limits for 1D plots
-            try:
-                y_min = float(self.y_theta_min_edit.text()) if self.y_theta_min_edit.text().strip() else None
-                y_max = float(self.y_theta_max_edit.text()) if self.y_theta_max_edit.text().strip() else None
-                
-                if y_min is not None or y_max is not None:
-                    current_limits = ax.get_ylim()
-                    new_min = y_min if y_min is not None else current_limits[0]
-                    new_max = y_max if y_max is not None else current_limits[1]
-                    ax.set_ylim(new_min, new_max)
-            except ValueError:
-                pass
     def replot_current_data(self, preserve_limits=True):
         """Replot using stored parameters."""
         if self.current_pattern is not None:
@@ -708,6 +618,27 @@ class PlotWidget(QWidget):
         # Replot with auto-scale (don't preserve old limits)
         self.replot_current_data(preserve_limits=False)
 
+    @staticmethod
+    def _apply_axis_limit(setter, getter, min_text, max_text):
+        """
+        Apply whichever of a minimum and maximum the user actually typed.
+
+        An empty field keeps the current value for that end of the axis, so a
+        lower bound on its own works.
+        """
+        min_text = (min_text or "").strip()
+        max_text = (max_text or "").strip()
+        if not min_text and not max_text:
+            return
+        current_min, current_max = getter()
+        try:
+            new_min = float(min_text) if min_text else current_min
+            new_max = float(max_text) if max_text else current_max
+        except ValueError:
+            return
+        if new_min != new_max:
+            setter(new_min, new_max)
+
     def update_plot_formatting(self):
         """Update plot formatting without replotting data."""
         if not self.figure.axes:
@@ -739,13 +670,8 @@ class PlotWidget(QWidget):
                     self.current_colorbar.update_normal(mappable)
             
             # Theta (radial) limits
-            try:
-                theta_min = self.y_theta_min_edit.text()
-                theta_max = self.y_theta_max_edit.text()
-                if theta_min and theta_max:
-                    ax.set_ylim(float(theta_min), float(theta_max))
-            except ValueError:
-                pass
+            self._apply_axis_limit(ax.set_ylim, ax.get_ylim,
+                                   self.y_theta_min_edit.text(), self.y_theta_max_edit.text())
         else:
             # Handle 1D plot formatting
             
@@ -753,18 +679,11 @@ class PlotWidget(QWidget):
             if ax.get_legend():
                 ax.get_legend().set_visible(self.legend_colorbar_check.isChecked())
             
-            # X and Y axis limits
-            try:
-                x_min = self.x_phi_min_edit.text()
-                x_max = self.x_phi_max_edit.text()
-                if x_min and x_max:
-                    ax.set_xlim(float(x_min), float(x_max))
-                
-                y_min = self.y_theta_min_edit.text()
-                y_max = self.y_theta_max_edit.text()
-                if y_min and y_max:
-                    ax.set_ylim(float(y_min), float(y_max))
-            except ValueError:
-                pass
+            # X and Y axis limits. A minimum on its own is applied too;
+            # requiring both fields meant typing one did nothing.
+            self._apply_axis_limit(ax.set_xlim, ax.get_xlim,
+                                   self.x_phi_min_edit.text(), self.x_phi_max_edit.text())
+            self._apply_axis_limit(ax.set_ylim, ax.get_ylim,
+                                   self.y_theta_min_edit.text(), self.y_theta_max_edit.text())
         
         self.canvas.draw()
