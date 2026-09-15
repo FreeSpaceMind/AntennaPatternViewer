@@ -7,7 +7,8 @@ including Spherical Wave Expansion and Near Field evaluation.
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QComboBox, QPushButton, QDoubleSpinBox, QCheckBox,
-    QScrollArea, QSpinBox, QTextEdit, QSizePolicy
+    QScrollArea, QSpinBox, QTextEdit, QSizePolicy, QListWidget,
+    QListWidgetItem
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 
@@ -64,12 +65,39 @@ class AnalysisPanel(QWidget):
         swe_layout.addWidget(QLabel("Calculate spherical mode coefficients:"))
 
         # Frequency selection for SWE
-        swe_freq_row = QHBoxLayout()
-        swe_freq_row.addWidget(QLabel("Frequency:"))
-        self.swe_freq_combo = QComboBox()
-        swe_freq_row.addWidget(self.swe_freq_combo)
-        swe_freq_row.addStretch()
-        swe_layout.addLayout(swe_freq_row)
+        swe_layout.addWidget(QLabel("Frequencies:"))
+        self.swe_freq_list = QListWidget()
+        self.swe_freq_list.setMaximumHeight(110)
+        swe_layout.addWidget(self.swe_freq_list)
+
+        swe_freq_buttons = QHBoxLayout()
+        self.swe_select_all_btn = QPushButton("Select All")
+        self.swe_clear_all_btn = QPushButton("Clear All")
+        self.swe_select_all_btn.clicked.connect(
+            lambda: self._set_all_swe_frequencies(Qt.CheckState.Checked))
+        self.swe_clear_all_btn.clicked.connect(
+            lambda: self._set_all_swe_frequencies(Qt.CheckState.Unchecked))
+        swe_freq_buttons.addWidget(self.swe_select_all_btn)
+        swe_freq_buttons.addWidget(self.swe_clear_all_btn)
+        swe_freq_buttons.addStretch()
+        swe_layout.addLayout(swe_freq_buttons)
+
+        # Radius of the minimum sphere enclosing the antenna sources.  SWE uses
+        # this physical size to determine the maximum useful mode order.
+        radius_row = QHBoxLayout()
+        radius_row.addWidget(QLabel("Source radius r:"))
+        self.swe_radius_spin = QDoubleSpinBox()
+        self.swe_radius_spin.setRange(0.0001, 1000.0)
+        self.swe_radius_spin.setValue(0.05)
+        self.swe_radius_spin.setSuffix(" m")
+        self.swe_radius_spin.setDecimals(4)
+        self.swe_radius_spin.setToolTip(
+            "Radius of the minimum sphere enclosing the antenna sources. "
+            "Used to compute the physical maximum SWE mode order."
+        )
+        radius_row.addWidget(self.swe_radius_spin)
+        radius_row.addStretch()
+        swe_layout.addLayout(radius_row)
 
         # NMAX controls
         nmax_row = QHBoxLayout()
@@ -278,7 +306,7 @@ class AnalysisPanel(QWidget):
             self.current_pattern = None
             self.swe_calculated = False
             self.nearfield_data = None
-            self.swe_freq_combo.clear()
+            self.swe_freq_list.clear()
             self.swe_results.clear()
             self.nf_results.clear()
             self.power_canvas.setVisible(False)
@@ -289,10 +317,14 @@ class AnalysisPanel(QWidget):
         self.current_pattern = pattern
         self.nearfield_data = None
 
-        # Update frequency combo for SWE
-        self.swe_freq_combo.clear()
+        # Update the checkable frequency list for SWE (all selected by default)
+        self.swe_freq_list.clear()
         for freq in pattern.frequencies:
-            self.swe_freq_combo.addItem(f"{freq/1e6:.2f} MHz")
+            item = QListWidgetItem(f"{freq/1e6:.2f} MHz")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, float(freq))
+            self.swe_freq_list.addItem(item)
 
         # Check if pattern has loaded SWE data
         if hasattr(pattern, 'swe') and pattern.swe:
@@ -326,12 +358,14 @@ class AnalysisPanel(QWidget):
         try:
             from antenna_pattern_viewer.workers.swe_worker import SWEWorker
 
-            # Get frequency
-            frequency = self.get_swe_frequency()
-            if frequency is None:
+            # Get frequencies
+            frequencies = self.get_swe_frequencies()
+            if not frequencies:
+                self.swe_results.setText("Select at least one frequency.")
                 return
 
             # Read NMAX/MMAX settings
+            radius = self.swe_radius_spin.value()
             nmax = None if self.nmax_auto_check.isChecked() else self.nmax_spin.value()
             mmax = None if self.mmax_auto_check.isChecked() else self.mmax_spin.value()
 
@@ -340,8 +374,8 @@ class AnalysisPanel(QWidget):
             self.calculate_swe_btn.setText("Calculating...")
 
             # Create and configure worker thread
-            self.swe_worker = SWEWorker(self.current_pattern, frequency,
-                                        nmax=nmax, mmax=mmax)
+            self.swe_worker = SWEWorker(self.current_pattern, frequencies,
+                                        r=radius, nmax=nmax, mmax=mmax)
 
             # Connect signals
             self.swe_worker.finished.connect(self.on_swe_finished)
@@ -362,7 +396,8 @@ class AnalysisPanel(QWidget):
         pattern = self.current_pattern
         if not hasattr(pattern, 'swe'):
             pattern.swe = {}
-        pattern.swe[swe_obj.frequencies[0]] = swe_obj
+        for frequency in swe_obj.frequencies:
+            pattern.swe[float(frequency)] = swe_obj
 
         # Display results
         self.display_swe_results(swe_obj)
@@ -379,7 +414,7 @@ class AnalysisPanel(QWidget):
 
     def on_swe_progress(self, message):
         """Handle SWE calculation progress updates."""
-        pass
+        self.swe_results.setText(message)
 
     def on_calculate_nearfield(self):
         """Handle near field calculation request."""
@@ -489,22 +524,21 @@ class AnalysisPanel(QWidget):
         self.swe_calculated = True
         self.calculate_nf_btn.setEnabled(True)
 
-        freq = swe.frequencies[0]
-        q1 = swe.Q1_coeffs(freq)
-        q2 = swe.Q2_coeffs(freq)
-
+        frequencies = list(swe.frequencies)
+        freq = frequencies[0]
         result_text = "SWE Coefficients calculated:\n"
-        result_text += f"Frequency: {freq/1e9:.3f} GHz\n"
-        result_text += f"Mode indices: MMAX={swe.MMAX(freq)}, NMAX={swe.NMAX(freq)}\n"
-
-        # Calculate total modes
-        total_modes = len(q1) + len(q2)
-        result_text += f"Total coefficients: {total_modes}\n"
-
-        # Calculate total power
-        total_power = sum(abs(q)**2 for q in q1.values())
-        total_power += sum(abs(q)**2 for q in q2.values())
-        result_text += f"Total power: {total_power:.6e} W\n"
+        result_text += f"{len(frequencies)} frequenc{'y' if len(frequencies) == 1 else 'ies'}:\n"
+        for frequency in frequencies:
+            q1 = swe.Q1_coeffs(frequency)
+            q2 = swe.Q2_coeffs(frequency)
+            total_modes = len(q1) + len(q2)
+            total_power = sum(abs(q)**2 for q in q1.values())
+            total_power += sum(abs(q)**2 for q in q2.values())
+            result_text += (
+                f"  {frequency/1e9:.3f} GHz: MMAX={swe.MMAX(frequency)}, "
+                f"NMAX={swe.NMAX(frequency)}, {total_modes} coefficients, "
+                f"power={total_power:.6e} W\n"
+            )
 
         self.swe_results.setText(result_text)
 
@@ -651,12 +685,23 @@ class AnalysisPanel(QWidget):
             self._plot_power_distributions(power_per_n, power_per_m)
 
     # Getter methods
+    def _set_all_swe_frequencies(self, state):
+        """Set the checked state of every SWE frequency."""
+        for index in range(self.swe_freq_list.count()):
+            self.swe_freq_list.item(index).setCheckState(state)
+
+    def get_swe_frequencies(self):
+        """Get all frequencies checked for SWE calculation."""
+        return [
+            float(self.swe_freq_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.swe_freq_list.count())
+            if self.swe_freq_list.item(index).checkState() == Qt.CheckState.Checked
+        ]
+
     def get_swe_frequency(self):
-        """Get selected frequency for SWE."""
-        if self.current_pattern is None or self.swe_freq_combo.currentIndex() < 0:
-            return None
-        freq_index = self.swe_freq_combo.currentIndex()
-        return self.current_pattern.frequencies[freq_index]
+        """Get the first selected frequency for backwards compatibility."""
+        frequencies = self.get_swe_frequencies()
+        return frequencies[0] if frequencies else None
 
     def get_nf_surface_type(self):
         """Get near field surface type."""

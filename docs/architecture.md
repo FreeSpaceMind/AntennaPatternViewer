@@ -683,20 +683,19 @@ class SWEWorker(QThread):
     error = pyqtSignal(str)         # Emits error message
     progress = pyqtSignal(str)      # Emits progress messages
 
-    def __init__(self, pattern, frequency, nmax=None, mmax=None):
+    def __init__(self, pattern, frequencies, r, nmax=None, mmax=None):
         super().__init__()
         self.pattern = pattern
-        self.frequency = frequency
+        self.frequencies = frequencies
+        self.r = r
         self.nmax = nmax
         self.mmax = mmax
 
     def run(self):
         try:
-            self.progress.emit("Calculating spherical modes...")
-            swe = self.pattern.calculate_spherical_modes(
-                frequency=self.frequency,
-                nmax=self.nmax,
-                mmax=self.mmax
+            self.progress.emit("Calculating selected frequencies...")
+            swe = calculate_and_combine(
+                self.pattern, self.frequencies, self.r, self.nmax, self.mmax
             )
             self.finished.emit(swe)
         except Exception as e:
@@ -706,7 +705,7 @@ class SWEWorker(QThread):
 Usage from AnalysisPanel:
 
 ```python
-self.swe_worker = SWEWorker(pattern, frequency, nmax=nmax)
+self.swe_worker = SWEWorker(pattern, frequencies, r=source_radius, nmax=nmax)
 self.swe_worker.finished.connect(self.on_swe_finished)
 self.swe_worker.error.connect(self.on_swe_error)
 self.swe_worker.progress.connect(self.on_swe_progress)

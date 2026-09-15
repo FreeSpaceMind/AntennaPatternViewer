@@ -478,9 +478,11 @@ SWE decomposes a far-field pattern into spherical mode coefficients $Q_1^{smn}$ 
 
 | Control | Description |
 |---------|-------------|
-| **Frequency** combo | Select the frequency at which to compute SWE coefficients |
-| **NMAX: Auto** checkbox | When checked, NMAX is determined automatically from the pattern sampling. When unchecked, the spinbox (range 1--500) allows manual override |
-| **MMAX: Auto** checkbox | When checked, MMAX is determined automatically. When unchecked, the spinbox (range 0--500) allows manual override |
+| **Frequencies** list | Check one or more frequencies at which to compute SWE coefficients; all are checked by default |
+| **Select All / Clear All** | Quickly change the SWE frequency selection |
+| **Source radius r** | Radius in meters of the minimum sphere enclosing the antenna sources; used to compute the physical maximum mode order |
+| **NMAX: Auto** checkbox | When checked, the physical maximum is computed from the source radius and frequency. When unchecked, the spinbox (range 1--500) truncates the result to a manual limit |
+| **MMAX: Auto** checkbox | When checked, the physical maximum is computed automatically. When unchecked, the spinbox (range 0--500) truncates the result to a manual limit |
 | **Calculate SWE Coefficients** button | Starts the SWE calculation in a background thread (the GUI remains responsive) |
 
 #### SWE Mode Indices
@@ -518,8 +520,8 @@ The SWE calculation runs in a dedicated `QThread` (via `SWEWorker`) to prevent t
 
 - The button text changes to "Calculating..."
 - The button is disabled to prevent duplicate calculations
-- Progress messages are emitted (currently reserved for future use)
-- On completion, results are displayed and the SWE data is stored on the pattern object at `pattern.swe[frequency]`
+- The results area shows the current frequency and overall progress
+- On completion, results for every selected frequency are displayed and stored on the pattern object at `pattern.swe[frequency]`
 
 If the pattern was loaded from a `.sph` file, SWE data is already available and displayed immediately without requiring re-calculation.
 
@@ -590,7 +592,7 @@ The Export Panel saves the current pattern to various file formats.
 
 ### Format-Specific Notes
 
-**SPH Export:** This format exports spherical wave expansion coefficients, not raw field data. You must first calculate SWE coefficients in the Analysis panel. If SWE data is not available, the export will fail with an error message directing you to the Analysis panel.
+**SPH Export:** This format exports spherical wave expansion coefficients, not raw field data. You must first calculate SWE coefficients in the Analysis panel. "All frequencies" writes every calculated frequency block to one `.sph` file; "Selected only" writes the calculated frequencies selected in the View panel. If SWE data is not available, the export will fail with an error message directing you to the Analysis panel.
 
 **PKL Export:** This saves the `matplotlib.figure.Figure` object from the 2D plot widget. To reload:
 
@@ -604,7 +606,7 @@ fig.show()
 plt.show()
 ```
 
-**Selected Frequency:** When "Selected only" is chosen, the first frequency selected in the View panel is exported. If no frequency is selected, the first frequency in the pattern is used.
+**Selected Frequency:** For far-field formats, when "Selected only" is chosen, the first frequency selected in the View panel is exported. For SPH, all selected frequencies with calculated SWE data are written. If no frequency is selected, the first available frequency is used.
 
 ---
 

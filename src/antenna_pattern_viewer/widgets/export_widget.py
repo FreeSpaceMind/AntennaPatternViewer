@@ -192,7 +192,44 @@ class ExportWidget(QWidget):
                     "Please calculate SWE in the Analysis tab before exporting to SPH format."
                 )
             
-            # Export the first available SWE (user has already calculated the one they want)
-            freq = list(pattern.swe.keys())[0]
-            swe = pattern.swe[freq]
+            available_frequencies = sorted(float(freq) for freq in pattern.swe)
+            if self.freq_selected.isChecked():
+                selected = self.data_model.get_view_param('selected_frequencies') or []
+                frequencies = [
+                    min(available_frequencies, key=lambda value: abs(value - float(freq)))
+                    for freq in selected
+                ]
+                frequencies = sorted(set(frequencies))
+                if not frequencies:
+                    frequencies = [available_frequencies[0]]
+            else:
+                frequencies = available_frequencies
+
+            swe = self._combine_swe_frequencies(pattern.swe, frequencies)
             write_ticra_sph(swe, file_path)
+
+    @staticmethod
+    def _combine_swe_frequencies(swe_by_frequency, frequencies):
+        """Build one exportable SWE object containing the requested frequencies."""
+        from swe import SphericalWaveExpansion
+
+        q1_by_frequency = {}
+        q2_by_frequency = {}
+        nmax_by_frequency = {}
+        mmax_by_frequency = {}
+        available = [float(freq) for freq in swe_by_frequency]
+
+        for requested_frequency in frequencies:
+            frequency = min(available, key=lambda value: abs(value - requested_frequency))
+            expansion = swe_by_frequency[frequency]
+            q1_by_frequency[frequency] = expansion.Q1_coeffs(frequency)
+            q2_by_frequency[frequency] = expansion.Q2_coeffs(frequency)
+            nmax_by_frequency[frequency] = expansion.NMAX(frequency)
+            mmax_by_frequency[frequency] = expansion.MMAX(frequency)
+
+        return SphericalWaveExpansion(
+            Q1_coeffs=q1_by_frequency,
+            Q2_coeffs=q2_by_frequency,
+            NMAX=nmax_by_frequency,
+            MMAX=mmax_by_frequency,
+        )
