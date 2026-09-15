@@ -29,6 +29,9 @@ class AntennaPatternWidget(QMainWindow):
     pattern_loaded = pyqtSignal(object)  # Emits FarFieldSpherical when pattern loaded
     status_message = pyqtSignal(str)  # Emits status messages
 
+    SETTINGS_ORG = "AntennaPatternViewer"
+    SETTINGS_APP = "MainWindow"
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -43,6 +46,9 @@ class AntennaPatternWidget(QMainWindow):
         self.setup_menus()
         self.setup_status_bar()
         self.connect_signals()
+
+        # Restore the window geometry and dock arrangement saved on last exit
+        self.load_settings()
 
     def setup_docks(self):
         """Create and arrange dock widgets with icon sidebar navigation."""
@@ -191,13 +197,13 @@ class AntennaPatternWidget(QMainWindow):
 
     def save_settings(self):
         """Save window geometry and dock states."""
-        settings = QSettings("AntennaPatternViewer", "MainWindow")
+        settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("windowState", self.saveState())
 
     def load_settings(self):
         """Load window geometry and dock states."""
-        settings = QSettings("AntennaPatternViewer", "MainWindow")
+        settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
         geometry = settings.value("geometry")
         if geometry:
             self.restoreGeometry(geometry)
@@ -211,14 +217,17 @@ class AntennaPatternWidget(QMainWindow):
         event.accept()
 
     def reset_to_default_layout(self):
-        """Reset dock layout to default configuration."""
-        # Clear saved state
-        settings = QSettings("AntPy", "AntennaPatternViewer")
+        """
+        Clear the saved window state and restore the default dock layout.
+
+        Calling setup_docks() a second time would build a second set of plot
+        widgets, each connected to the same data model, so the rearrangement is
+        delegated to reset_layout(), which moves the existing docks.
+        """
+        settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
         settings.remove("geometry")
         settings.remove("windowState")
-
-        # Reapply default layout
-        self.setup_docks()
+        self.reset_layout()
 
     # Help methods
     def show_help(self):
@@ -238,9 +247,13 @@ class AntennaPatternWidget(QMainWindow):
         """Show the Files panel in the left sidebar."""
         self.left_panel.show_files_panel()
 
-    def show_controls_panel(self):
-        """Show the Controls panel in the left sidebar."""
-        self.left_panel.show_controls_panel()
+    def show_view_panel(self):
+        """Show the View panel in the left sidebar."""
+        self.left_panel.show_view_panel()
+
+    def show_processing_panel(self):
+        """Show the Processing panel in the left sidebar."""
+        self.left_panel.show_processing_panel()
 
     def show_analysis_panel(self):
         """Show the Analysis panel in the left sidebar."""
