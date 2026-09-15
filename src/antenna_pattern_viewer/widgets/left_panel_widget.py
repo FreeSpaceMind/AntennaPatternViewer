@@ -15,7 +15,7 @@ Usage:
         data_model,
         first_panel_widget=generator_widget,
         first_panel_config={"icon": "🔧", "tooltip": "Generator - Create patterns", "name": "generator"},
-        show_pattern_strip=False,  # Optional: hide pattern strip
+        show_pattern_strip=False,  # Optional: hide the pattern list
     )
 """
 from PyQt6.QtWidgets import (
@@ -42,7 +42,7 @@ class LeftPanelWidget(QWidget):
 
     Layout:
     +----------+----------------------+
-    |          | PatternStrip         |
+    |          | PatternListWidget    |
     | Icon     +----------------------+
     | Sidebar  | QStackedWidget       |
     |  Custom  |  [0] CustomPanel     |
@@ -59,7 +59,7 @@ class LeftPanelWidget(QWidget):
             If None, uses FileManagerWidget.
         first_panel_config: Optional dict with icon/tooltip for first panel.
             Keys: "icon", "tooltip", "name"
-        show_pattern_strip: Whether to show the pattern strip (default True)
+        show_pattern_strip: Whether to show the pattern list (default True)
         parent: Parent widget
     """
 

@@ -26,7 +26,7 @@ class PatternListWidget(QWidget):
     - [+] button to open file dialog
     """
 
-    # Signals (same as PatternStrip for compatibility)
+    # Signals
     pattern_selected = pyqtSignal(str)  # Emits instance_id
     add_pattern_requested = pyqtSignal()  # Request to open file dialog
 

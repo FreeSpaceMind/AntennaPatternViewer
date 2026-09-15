@@ -223,7 +223,25 @@ class AntennaPatternWidget(QMainWindow):
     def closeEvent(self, event):
         """Handle window close event."""
         self.save_settings()
+        self._stop_background_workers()
         event.accept()
+
+    def _stop_background_workers(self):
+        """
+        Wait for background threads before the window goes away.
+
+        A running QThread whose owner is destroyed aborts the process with
+        "QThread: Destroyed while thread is still running".
+        """
+        analysis = getattr(self.left_panel, 'analysis_panel', None)
+        worker = getattr(analysis, 'swe_worker', None)
+        if worker is not None and worker.isRunning():
+            worker.wait(5000)
+
+        file_panel = getattr(self.left_panel, 'file_manager', None)
+        for loader in list(getattr(file_panel, '_load_workers', [])):
+            loader.cancel()
+            loader.wait(5000)
 
     def reset_to_default_layout(self):
         """

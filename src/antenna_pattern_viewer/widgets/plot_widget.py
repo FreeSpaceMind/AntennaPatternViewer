@@ -12,7 +12,9 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from typing import Tuple, Optional, Any
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox, QLineEdit, QLabel
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox,
+                             QLineEdit, QLabel, QFileDialog, QMessageBox)
+from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 
 from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
@@ -166,6 +168,15 @@ class PlotWidget(QWidget):
         self.reset_scale_btn = QPushButton("Reset Scale")
         self.reset_scale_btn.clicked.connect(self.reset_scale)
         format_layout.addWidget(self.reset_scale_btn)
+
+        # Export what is on screen, which is the common ask after looking at a
+        # cut. The Export panel writes whole patterns, not the plotted curves.
+        self.export_curves_btn = QPushButton("Export Plot Data")
+        self.export_curves_btn.setToolTip(
+            "Write the plotted curves to CSV: one column of x values and one "
+            "column per trace, exactly as displayed")
+        self.export_curves_btn.clicked.connect(self.export_plotted_data)
+        format_layout.addWidget(self.export_curves_btn)
 
         format_layout.addStretch()
         
@@ -656,6 +667,67 @@ class PlotWidget(QWidget):
             return
         if new_min != new_max:
             setter(new_min, new_max)
+
+    def get_plotted_data(self):
+        """
+        The curves currently drawn, as (x_label, x_values, [(label, y), ...]).
+
+        Taken from the axes rather than recomputed, so what is written is what
+        is displayed, including normalization and the chosen component.
+        Returns None when nothing is plotted.
+        """
+        if not self.figure.axes:
+            return None
+        ax = self.figure.axes[0]
+        traces = []
+        for index, line in enumerate(ax.get_lines()):
+            label = line.get_label()
+            if label.startswith('_'):
+                label = f"trace_{index + 1}"
+            traces.append((label, line.get_xdata(), line.get_ydata()))
+        if not traces:
+            return None
+        return ax.get_xlabel() or 'x', ax.get_ylabel() or 'y', traces
+
+    def export_plotted_data(self):
+        """Write the plotted curves to CSV."""
+        import csv
+
+        plotted = self.get_plotted_data()
+        if plotted is None:
+            QMessageBox.information(self, "Nothing to Export",
+                                    "There is no plotted data to export.")
+            return
+        x_label, y_label, traces = plotted
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Plot Data", "plot_data.csv",
+            "CSV Files (*.csv);;All Files (*)")
+        if not file_path:
+            return
+        if not Path(file_path).suffix:
+            file_path = f"{file_path}.csv"
+
+        # Traces can differ in length (a comparison of patterns sampled
+        # differently), so each one carries its own x column.
+        try:
+            with open(file_path, 'w', newline='') as handle:
+                writer = csv.writer(handle)
+                header = []
+                for label, _x, _y in traces:
+                    header += [f"{x_label} [{label}]", f"{y_label} [{label}]"]
+                writer.writerow(header)
+                for row in range(max(len(x) for _l, x, _y in traces)):
+                    values = []
+                    for _label, x, y in traces:
+                        values += ([x[row], y[row]] if row < len(x) else ['', ''])
+                    writer.writerow(values)
+        except OSError as e:
+            logger.error("Could not write %s: %s", file_path, e)
+            QMessageBox.critical(self, "Export Failed", f"Could not write the file:\n{e}")
+            return
+
+        logger.info("Exported %d trace(s) to %s", len(traces), file_path)
 
     def clear_saved_limits(self):
         """Forget the remembered axis limits so the next plot auto-scales."""

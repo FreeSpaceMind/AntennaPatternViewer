@@ -58,6 +58,18 @@ class CutFileDialog(QDialog):
         self.freq_end_spin.setDecimals(3)
         layout.addRow("End Frequency:", self.freq_end_spin)
 
+        # read_cut spreads the frequencies evenly from start to end, so an end
+        # below the start silently produces a descending frequency axis.
+        self.freq_start_spin.valueChanged.connect(self._on_start_changed)
+        self.freq_end_spin.valueChanged.connect(self._on_end_changed)
+
+        self.freq_hint = QLabel(
+            "A single frequency uses the same value for both. Otherwise the "
+            "file's cuts are spread evenly from start to end.")
+        self.freq_hint.setWordWrap(True)
+        self.freq_hint.setStyleSheet("font-size: 9pt; color: #666;")
+        layout.addRow(self.freq_hint)
+
         # Buttons
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
@@ -66,6 +78,20 @@ class CutFileDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+
+    def _on_start_changed(self, value):
+        """Push the end frequency up so it never falls below the start."""
+        if self.freq_end_spin.value() < value:
+            self.freq_end_spin.blockSignals(True)
+            self.freq_end_spin.setValue(value)
+            self.freq_end_spin.blockSignals(False)
+
+    def _on_end_changed(self, value):
+        """Pull the start frequency down so it never exceeds the end."""
+        if self.freq_start_spin.value() > value:
+            self.freq_start_spin.blockSignals(True)
+            self.freq_start_spin.setValue(value)
+            self.freq_start_spin.blockSignals(False)
 
     def get_frequencies(self):
         """Return frequencies in Hz."""
@@ -234,8 +260,10 @@ class FileManagerWidget(QWidget):
         self.connect_signals()
         self.setAcceptDrops(True)
 
-        # Set while a batch load is in progress; see load_pattern_files()
-        self._batch_errors = None
+        # Background loading state; see load_pattern_files()
+        self._load_workers = []
+        self._load_failures = []
+        self._load_total = 0
 
     def load_settings(self):
         """Load saved settings."""
@@ -312,7 +340,11 @@ class FileManagerWidget(QWidget):
         self.preview_label.setMaximumHeight(50)
         main_layout.addWidget(self.preview_label)
 
-        # Note: Loaded Patterns and Comparison sections moved to PatternStrip widget
+        # Progress line for background loading; see load_pattern_files()
+        self.load_status = QLabel("")
+        self.load_status.setWordWrap(True)
+        self.load_status.setStyleSheet("font-size: 9pt; color: #666;")
+        main_layout.addWidget(self.load_status)
 
     def create_toolbar(self) -> QWidget:
         """Create toolbar with Open, Recent, and Search."""
@@ -461,7 +493,6 @@ class FileManagerWidget(QWidget):
 
     def connect_signals(self):
         """Connect data model signals."""
-        # Note: Pattern management moved to PatternStrip widget
         pass
 
     # === FILE OPERATIONS ===
@@ -503,90 +534,124 @@ class FileManagerWidget(QWidget):
 
     def load_pattern_files(self, file_paths):
         """
-        Load several pattern files, reporting any failures in one dialog.
+        Load several pattern files in the background.
 
-        Loading them one at a time pops a modal error for each bad file, which
-        means dismissing a dialog per file when a directory is dropped in.
+        Format-specific options are collected here, on the GUI thread, because
+        they need a modal dialog. The reads themselves run in a worker so the
+        window stays responsive, which matters because a large file takes
+        seconds and a dropped directory multiplies that.
         """
-        self._batch_errors = []
-        try:
-            for file_path in file_paths:
-                self.load_pattern_file(Path(file_path))
-            failures = self._batch_errors
-        finally:
-            self._batch_errors = None
+        jobs = []
+        for file_path in file_paths:
+            file_path = Path(file_path)
+            try:
+                read = self._make_reader(file_path)
+            except Exception as e:
+                logger.exception("Could not prepare %s", file_path)
+                self._load_failures.append((file_path.name, str(e)))
+                continue
+            if read is not None:          # None: the user cancelled the dialog
+                jobs.append((file_path, read))
 
-        if failures:
-            box = QMessageBox(QMessageBox.Icon.Warning, "Load Errors",
-                              f"{len(failures)} of {len(list(file_paths))} files "
-                              f"could not be loaded.", parent=self)
-            box.setDetailedText("\n".join(f"{name}: {message}"
-                                          for name, message in failures))
-            box.exec()
+        if not jobs:
+            self._report_load_failures(len(list(file_paths)))
+            return
 
-    def load_pattern_file(self, file_path: Path):
-        """Load a pattern file and create an instance."""
-        try:
-            suffix = file_path.suffix.lower()
+        self._load_total = len(list(file_paths))
+        self._start_load_worker(jobs)
 
-            if suffix == '.cut':
-                dialog = CutFileDialog(file_path.name, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    freq_start, freq_end = dialog.get_frequencies()
-                    pattern = read_cut(str(file_path), freq_start, freq_end)
-                else:
-                    return
+    def _make_reader(self, file_path: Path):
+        """
+        Build a no-argument callable that reads ``file_path``.
 
-            elif suffix == '.ffd':
-                pattern = read_ffd(str(file_path))
+        Returns None when the user cancels a format-specific import dialog.
 
-            elif suffix == '.npz':
-                pattern, _ = load_pattern_npz(str(file_path))
+        Raises:
+            ValueError: If the extension is not supported
+        """
+        suffix = file_path.suffix.lower()
+        path_str = str(file_path)
 
-            elif suffix == '.sph':
+        if suffix == '.cut':
+            dialog = CutFileDialog(file_path.name, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return None
+            freq_start, freq_end = dialog.get_frequencies()
+            return lambda: read_cut(path_str, freq_start, freq_end)
+
+        if suffix == '.ffd':
+            return lambda: read_ffd(path_str)
+
+        if suffix == '.npz':
+            return lambda: load_pattern_npz(path_str)[0]
+
+        if suffix == '.sph':
+            def read_sph():
                 from farfield_spherical.io.readers import read_ticra_sph
                 from farfield_spherical.io.swe_utils import create_pattern_from_swe
+                return create_pattern_from_swe(read_ticra_sph(path_str))
+            return read_sph
 
-                swe = read_ticra_sph(str(file_path))
-                pattern = create_pattern_from_swe(swe)
+        if suffix == '.atams':
+            dialog = AtamsFileDialog(file_path.name, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return None
+            interpolate = dialog.get_interpolate()
+            return lambda: read_atams(path_str, interpolate=interpolate)
 
-            elif suffix == '.atams':
-                dialog = AtamsFileDialog(file_path.name, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    interpolate = dialog.get_interpolate()
-                    pattern = read_atams(str(file_path), interpolate=interpolate)
-                else:
-                    return
+        raise ValueError(f"Unsupported file format: {suffix}")
 
-            else:
-                raise ValueError(f"Unsupported file format: {suffix}")
+    def _start_load_worker(self, jobs):
+        """Run the prepared read jobs in a background thread."""
+        from antenna_pattern_viewer.workers import PatternLoadWorker
 
-            # Create instance
-            instance = PatternInstance(
-                pattern=pattern,
-                source_file=file_path,
-                display_name=file_path.name,
-                load_timestamp=time.time()
-            )
+        worker = PatternLoadWorker(jobs, parent=self)
+        worker.loaded.connect(self._on_pattern_loaded)
+        worker.failed.connect(self._on_pattern_load_failed)
+        worker.progress.connect(self._on_load_progress)
+        worker.finished.connect(lambda: self._on_load_finished(worker))
+        self._load_workers.append(worker)
+        worker.start()
 
-            # Add to model
-            self.data_model.add_instance(instance)
+    def _on_load_progress(self, file_path, index, total):
+        self.load_status.setText(f"Loading {file_path.name} ({index} of {total})...")
 
-            # Update recent files
-            self._add_to_recent(str(file_path))
+    def _on_pattern_loaded(self, file_path, pattern):
+        """Add a successfully read pattern to the model (on the GUI thread)."""
+        instance = PatternInstance(
+            pattern=pattern,
+            source_file=file_path,
+            display_name=file_path.name,
+            load_timestamp=time.time()
+        )
+        self.data_model.add_instance(instance)
+        self._add_to_recent(str(file_path))
 
-        except Exception as e:
-            logger.exception("Failed to load %s", file_path)
-            if self._batch_errors is not None:
-                # Inside load_pattern_files(): collect and report once at the
-                # end rather than opening one modal dialog per bad file.
-                self._batch_errors.append((file_path.name, str(e)))
-            else:
-                QMessageBox.critical(
-                    self,
-                    "Load Error",
-                    f"Failed to load {file_path.name}:\n{str(e)}"
-                )
+    def _on_pattern_load_failed(self, file_path, message, detail):
+        self._load_failures.append((file_path.name, message))
+
+    def _on_load_finished(self, worker):
+        """Report any failures once the batch is done and release the thread."""
+        self.load_status.setText("")
+        self._report_load_failures(self._load_total)
+        if worker in self._load_workers:
+            self._load_workers.remove(worker)
+        worker.deleteLater()
+
+    def _report_load_failures(self, total):
+        """Show one summary for a batch instead of a dialog per bad file."""
+        failures, self._load_failures = self._load_failures, []
+        if not failures:
+            return
+        box = QMessageBox(QMessageBox.Icon.Warning, "Load Errors",
+                          f"{len(failures)} of {total} file(s) could not be loaded.",
+                          parent=self)
+        box.setDetailedText("\n".join(f"{name}: {message}" for name, message in failures))
+        box.exec()
+
+    def load_pattern_file(self, file_path: Path):
+        """Load a single pattern file."""
+        self.load_pattern_files([file_path])
 
     def _add_to_recent(self, file_path: str):
         """Add file to recent files list."""
@@ -776,4 +841,3 @@ class FileManagerWidget(QWidget):
             self.load_pattern_files(supported)
         event.acceptProposedAction()
 
-    # Note: Pattern management functions moved to PatternStrip widget

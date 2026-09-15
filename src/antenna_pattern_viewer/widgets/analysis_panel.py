@@ -473,6 +473,10 @@ class AnalysisPanel(QWidget):
             self.swe_worker.error.connect(self.on_swe_error)
             self.swe_worker.progress.connect(self.on_swe_progress)
 
+            # Release the QThread once it is done, so quitting the app does
+            # not report "QThread: Destroyed while thread is still running".
+            self.swe_worker.finished.connect(self.swe_worker.deleteLater)
+
             # Start the calculation in background
             self.swe_worker.start()
 

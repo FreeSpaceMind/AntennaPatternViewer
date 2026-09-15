@@ -8,7 +8,6 @@ from .plot_nearfield_widget import PlotNearFieldWidget
 
 # Icon sidebar navigation widgets
 from .icon_sidebar import IconSidebar
-from .pattern_strip import PatternStrip
 from .pattern_list_widget import PatternListWidget
 from .left_panel_widget import LeftPanelWidget
 from .view_panel import ViewPanel
@@ -23,7 +22,6 @@ __all__ = [
     'FileManagerWidget',
     # Icon sidebar navigation widgets
     'IconSidebar',
-    'PatternStrip',
     'PatternListWidget',
     'LeftPanelWidget',
     'ViewPanel',
