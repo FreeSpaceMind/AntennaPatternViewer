@@ -344,6 +344,10 @@ class ProcessingPanel(QWidget):
         if pattern is None:
             self.current_pattern = None
             self.pc_freq_combo.clear()
+            # Clear the checkboxes too, or they keep claiming steps are applied
+            # after the last pattern is unloaded.
+            self.reset_processing_state()
+            self.clear_processing_error()
             self.update_processing_controls_state()
             return
 
