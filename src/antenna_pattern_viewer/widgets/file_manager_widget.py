@@ -26,6 +26,10 @@ import os
 from farfield_spherical import read_cut, read_ffd, load_pattern_npz, read_atams
 from ..pattern_instance import PatternInstance
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class CutFileDialog(QDialog):
     """Dialog for getting frequency information for .cut files."""
@@ -183,6 +187,15 @@ class QuickAccessItem(QListWidgetItem):
         self.setToolTip(path)
 
 
+def _as_string_list(value):
+    """Coerce a QSettings value that should be a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value]
+
+
 class FileManagerWidget(QWidget):
     """
     Redesigned file manager widget for pattern loading and management.
@@ -221,10 +234,16 @@ class FileManagerWidget(QWidget):
         self.connect_signals()
         self.setAcceptDrops(True)
 
+        # Set while a batch load is in progress; see load_pattern_files()
+        self._batch_errors = None
+
     def load_settings(self):
         """Load saved settings."""
-        self.recent_files = self.settings.value(self.SETTINGS_RECENT_FILES, []) or []
-        self.favorites = self.settings.value(self.SETTINGS_FAVORITES, []) or []
+        # QSettings returns a bare str for a one-element list on some backends
+        # (the Windows registry among them), which would then be sliced and
+        # iterated character by character.
+        self.recent_files = _as_string_list(self.settings.value(self.SETTINGS_RECENT_FILES, []))
+        self.favorites = _as_string_list(self.settings.value(self.SETTINGS_FAVORITES, []))
         last_dir = self.settings.value(self.SETTINGS_LAST_DIR, QDir.homePath())
         self.current_directory = last_dir if Path(last_dir).exists() else QDir.homePath()
 
@@ -464,8 +483,7 @@ class FileManagerWidget(QWidget):
             self.save_settings()
 
             # Load each file
-            for file_path in files:
-                self.load_pattern_file(Path(file_path))
+            self.load_pattern_files(files)
 
     def load_selected_files(self):
         """Load selected files from browser."""
@@ -481,8 +499,30 @@ class FileManagerWidget(QWidget):
                 if file_path.is_file():
                     file_paths.add(file_path)
 
-        for file_path in file_paths:
-            self.load_pattern_file(file_path)
+        self.load_pattern_files(sorted(file_paths))
+
+    def load_pattern_files(self, file_paths):
+        """
+        Load several pattern files, reporting any failures in one dialog.
+
+        Loading them one at a time pops a modal error for each bad file, which
+        means dismissing a dialog per file when a directory is dropped in.
+        """
+        self._batch_errors = []
+        try:
+            for file_path in file_paths:
+                self.load_pattern_file(Path(file_path))
+            failures = self._batch_errors
+        finally:
+            self._batch_errors = None
+
+        if failures:
+            box = QMessageBox(QMessageBox.Icon.Warning, "Load Errors",
+                              f"{len(failures)} of {len(list(file_paths))} files "
+                              f"could not be loaded.", parent=self)
+            box.setDetailedText("\n".join(f"{name}: {message}"
+                                          for name, message in failures))
+            box.exec()
 
     def load_pattern_file(self, file_path: Path):
         """Load a pattern file and create an instance."""
@@ -536,11 +576,17 @@ class FileManagerWidget(QWidget):
             self._add_to_recent(str(file_path))
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Load Error",
-                f"Failed to load {file_path.name}:\n{str(e)}"
-            )
+            logger.exception("Failed to load %s", file_path)
+            if self._batch_errors is not None:
+                # Inside load_pattern_files(): collect and report once at the
+                # end rather than opening one modal dialog per bad file.
+                self._batch_errors.append((file_path.name, str(e)))
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Load Error",
+                    f"Failed to load {file_path.name}:\n{str(e)}"
+                )
 
     def _add_to_recent(self, file_path: str):
         """Add file to recent files list."""
@@ -722,11 +768,12 @@ class FileManagerWidget(QWidget):
 
     def dropEvent(self, event: QDropEvent):
         """Handle file drop."""
-        for url in event.mimeData().urls():
-            if url.isLocalFile():
-                path = Path(url.toLocalFile())
-                if path.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph', '.atams']:
-                    self.load_pattern_file(path)
+        paths = [Path(url.toLocalFile()) for url in event.mimeData().urls()
+                 if url.isLocalFile()]
+        supported = [p for p in paths
+                     if p.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph', '.atams']]
+        if supported:
+            self.load_pattern_files(supported)
         event.acceptProposedAction()
 
     # Note: Pattern management functions moved to PatternStrip widget
