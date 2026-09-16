@@ -39,7 +39,7 @@ def default_processing_state() -> Dict[str, Any]:
         'theta_origin_shift': None,     # measurement correction, degrees
         'phi_origin_shift': None,       # measurement correction, degrees
         'phase_center_translation': None,   # [x, y, z] in metres
-        'mars_max_extent': None,
+        'mars': None,                   # (max_extent_m, taper_orders)
         'rotation': None,               # (alpha, beta, gamma, method)
     }
 
@@ -185,8 +185,8 @@ class PatternDataModel(QObject):
          lambda p, v: p.shift_phi_origin(v)),
         ('phase_center_translation',
          lambda p, v: p.translate(list(v))),
-        ('mars_max_extent',
-         lambda p, v: p.apply_mars(v)),
+        ('mars',
+         lambda p, v: p.apply_mars(v[0], taper=v[1])),
         ('rotation',
          lambda p, v: p.rotate(v[0], v[1], v[2], method=v[3])),
     )
@@ -267,15 +267,20 @@ class PatternDataModel(QObject):
         self.apply_processing(_failed_key='phase_center_translation')
         self.processing_applied.emit("phase_center_translation")
     
-    def set_mars(self, max_extent: Optional[float]):
+    def set_mars(self, max_extent: Optional[float], taper: int = 0):
         """
         Enable or disable MARS.
-        
+
         Args:
             max_extent: Maximum radial extent in meters, or None to disable
+            taper: Number of mode orders over which the filter rolls off
+                (0 is a brick wall); ignored when disabling
         """
-        self._processing_state['mars_max_extent'] = max_extent
-        self.apply_processing(_failed_key='mars_max_extent')
+        if max_extent is None:
+            self._processing_state['mars'] = None
+        else:
+            self._processing_state['mars'] = (float(max_extent), int(taper))
+        self.apply_processing(_failed_key='mars')
         self.processing_applied.emit("mars")
     
     def set_coordinate_format(self, format: Optional[str]):

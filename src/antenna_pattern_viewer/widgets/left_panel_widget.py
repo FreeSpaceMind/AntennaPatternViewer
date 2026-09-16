@@ -251,8 +251,8 @@ class LeftPanelWidget(QWidget):
         except Exception as e:
             logger.error(f"Failed to toggle phase center: {e}", exc_info=True)
 
-    def on_apply_mars(self, max_radial_extent):
-        """Handle MARS toggle."""
+    def on_apply_mars(self, max_radial_extent, taper=0):
+        """Handle MARS toggle or a change of its extent/taper."""
         if self.data_model.original_pattern is None:
             return
 
@@ -260,8 +260,8 @@ class LeftPanelWidget(QWidget):
             is_checked = self.processing_panel.apply_mars_check.isChecked()
 
             if is_checked:
-                self.data_model.set_mars(max_radial_extent)
-                logger.info(f"MARS enabled: max_extent={max_radial_extent}")
+                self.data_model.set_mars(max_radial_extent, taper)
+                logger.info(f"MARS enabled: max_extent={max_radial_extent}, taper={taper}")
             else:
                 self.data_model.set_mars(None)
                 logger.info("MARS disabled")

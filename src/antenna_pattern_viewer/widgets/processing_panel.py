@@ -5,7 +5,7 @@ Standalone panel for the icon sidebar navigation (no collapsible groups).
 """
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QComboBox, QCheckBox, QPushButton, QDoubleSpinBox,
+    QComboBox, QCheckBox, QPushButton, QDoubleSpinBox, QSpinBox,
     QScrollArea, QSizePolicy
 )
 from PyQt6.QtCore import pyqtSignal, Qt
@@ -19,7 +19,7 @@ class ProcessingPanel(QWidget):
 
     # Signals for processing operations
     apply_phase_center_signal = pyqtSignal(float, float, float, float)  # x, y, z, frequency
-    apply_mars_signal = pyqtSignal(float)  # max_radial_extent
+    apply_mars_signal = pyqtSignal(float, int)  # max_radial_extent, taper
     polarization_changed = pyqtSignal(str)
     coordinate_format_changed = pyqtSignal(str)  # 'central' or 'sided'
     shift_theta_origin_signal = pyqtSignal(float)  # theta_offset in degrees
@@ -289,7 +289,19 @@ class ProcessingPanel(QWidget):
         self.max_radial_extent_spin.setValue(0.5)
         self.max_radial_extent_spin.setSuffix(" m")
         self.max_radial_extent_spin.setDecimals(3)
+        self.max_radial_extent_spin.valueChanged.connect(self.on_mars_value_changed)
         mars_row.addWidget(self.max_radial_extent_spin)
+        mars_row.addWidget(QLabel("Taper:"))
+        self.mars_taper_spin = QSpinBox()
+        self.mars_taper_spin.setRange(0, 100)
+        self.mars_taper_spin.setValue(0)
+        self.mars_taper_spin.setSuffix(" modes")
+        self.mars_taper_spin.setToolTip(
+            "Mode orders above k*D over which the filter rolls off with a raised cosine.\n"
+            "0 is a brick wall. A taper reduces ringing of the removed reflection\n"
+            "at the cost of keeping slightly more of it.")
+        self.mars_taper_spin.valueChanged.connect(self.on_mars_value_changed)
+        mars_row.addWidget(self.mars_taper_spin)
         mars_row.addStretch()
         layout.addWidget(mars_group)
 
@@ -441,7 +453,7 @@ class ProcessingPanel(QWidget):
 
         controls = {
             self.apply_phase_center_check: state.get('phase_center_translation') is not None,
-            self.apply_mars_check: state.get('mars_max_extent') is not None,
+            self.apply_mars_check: state.get('mars') is not None,
             self.apply_theta_shift_check: state.get('theta_origin_shift') is not None,
             self.apply_phi_shift_check: state.get('phi_origin_shift') is not None,
             self.apply_rotation_check: state.get('rotation') is not None,
@@ -462,6 +474,13 @@ class ProcessingPanel(QWidget):
                 self.phi_shift_spin.blockSignals(True)
                 self.phi_shift_spin.setValue(state['phi_origin_shift'])
                 self.phi_shift_spin.blockSignals(False)
+            if state.get('mars') is not None:
+                max_extent, taper = state['mars']
+                for spin, value in ((self.max_radial_extent_spin, max_extent),
+                                    (self.mars_taper_spin, taper)):
+                    spin.blockSignals(True)
+                    spin.setValue(value)
+                    spin.blockSignals(False)
             if state.get('rotation') is not None:
                 alpha, beta, gamma, method = state['rotation']
                 for spin, value in ((self.rot_alpha_spin, alpha),
@@ -629,8 +648,16 @@ class ProcessingPanel(QWidget):
         """Handle apply MARS checkbox toggle."""
         if not self.current_pattern:
             return
-        max_radial_extent = self.max_radial_extent_spin.value()
-        self.apply_mars_signal.emit(max_radial_extent)
+        self.apply_mars_signal.emit(self.max_radial_extent_spin.value(),
+                                    self.mars_taper_spin.value())
+
+    def on_mars_value_changed(self, _value):
+        """Re-apply MARS with the new extent or taper while it is enabled."""
+        if not self.current_pattern:
+            return
+        if self.apply_mars_check.isChecked():
+            self.apply_mars_signal.emit(self.max_radial_extent_spin.value(),
+                                        self.mars_taper_spin.value())
 
     # === GETTERS/SETTERS ===
 

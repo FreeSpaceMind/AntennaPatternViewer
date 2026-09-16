@@ -236,3 +236,43 @@ class TestComparison:
         result = model.get_comparison_compatibility()
         assert len(result['common_frequencies']) == len(FREQS)
         assert result['compatible']
+
+
+class TestMars:
+    def test_taper_is_passed_to_the_library(self, model, pattern, monkeypatch):
+        from farfield_spherical import FarFieldSpherical
+        calls = []
+        original = FarFieldSpherical.apply_mars
+
+        def spy(self, max_extent, taper=0):
+            calls.append((max_extent, taper))
+            return original(self, max_extent, taper=taper)
+
+        monkeypatch.setattr(FarFieldSpherical, 'apply_mars', spy)
+        model.set_pattern(pattern)
+        model.set_mars(0.2, taper=6)
+        assert calls == [(0.2, 6)]
+        assert model.pattern.metadata['operations'][-1]['taper'] == 6
+
+    def test_taper_change_reruns_only_mars(self, model, pattern, monkeypatch):
+        from farfield_spherical import FarFieldSpherical
+        counts = {'mars': 0, 'shift': 0}
+        original_mars, original_shift = FarFieldSpherical.apply_mars, FarFieldSpherical.shift_theta_origin
+        monkeypatch.setattr(FarFieldSpherical, 'apply_mars',
+                            lambda self, e, taper=0: (counts.__setitem__('mars', counts['mars'] + 1),
+                                                      original_mars(self, e, taper=taper))[1])
+        monkeypatch.setattr(FarFieldSpherical, 'shift_theta_origin',
+                            lambda self, v: (counts.__setitem__('shift', counts['shift'] + 1),
+                                             original_shift(self, v))[1])
+        model.set_pattern(pattern)
+        model.set_theta_origin_shift(1.0)
+        model.set_mars(0.2, taper=0)
+        model.set_mars(0.2, taper=5)
+        assert counts == {'mars': 2, 'shift': 1}
+
+    def test_disable_clears_state(self, model, pattern):
+        model.set_pattern(pattern)
+        model.set_mars(0.2, taper=3)
+        assert model._processing_state['mars'] == (0.2, 3)
+        model.set_mars(None)
+        assert model._processing_state['mars'] is None

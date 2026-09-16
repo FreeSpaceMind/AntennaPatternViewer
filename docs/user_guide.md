@@ -482,13 +482,16 @@ The **Find** button uses `scipy.optimize.basinhopping` to minimize the phase var
 |---------|-------------|
 | **Apply** checkbox | Enables/disables MARS processing |
 | **Max Extent** spinbox | Maximum radial extent of the antenna under test, in meters. Range: 0.001--10.0 m. Precision: 0.001 m. Default: 0.5 m |
+| **Taper** spinbox | Number of mode orders above $n_\text{max}$ over which the filter rolls off with a raised cosine. 0 (default) is a brick wall. Range: 0--100 |
+
+Changing either value while **Apply** is checked re-applies the filter.
 
 MARS suppresses room reflections and scattering artifacts in measured antenna patterns by filtering each great-circle phi cut in the cylindrical mode domain (far-field MARS). The algorithm:
 
 1. For each frequency, compute the wavenumber $k = 2\pi f / c$.
 2. Determine the maximum mode order: $n_\text{max} = \lfloor k \cdot a \rfloor$, where $a$ is the maximum radial extent.
 3. Decompose each phi cut (a closed circle in theta, central format) into Fourier modes.
-4. Retain only modes with index $|n| \leq n_\text{max}$; zero out higher-order modes.
+4. Retain modes with index $|n| \leq n_\text{max}$ in full, roll off over the next **Taper** orders, and zero out the rest.
 5. Reconstruct the filtered pattern.
 
 The physical rationale is that a source of maximum extent $a$ can only radiate modes up to order $n \approx ka$. Modes beyond this order are due to measurement artifacts (reflections, diffraction from the test range).
@@ -497,7 +500,7 @@ A pattern whose theta cuts do not span a full circle (a sector from a far-field 
 
 > **Guideline:** Set **Max Extent** to the physical radius of the antenna under test (including any feed structure or support), measured from the origin the pattern is referred to. Apply the phase center translation first so that the antenna is centred; the pipeline runs Phase Center before MARS for this reason. Too small a value over-smooths the pattern; too large a value retains artifacts.
 
-The viewer applies a brick-wall mode filter. The library's `apply_mars` also takes a `taper` argument (a raised-cosine roll-off over a number of orders above $n_\text{max}$) that reduces ringing; it is not yet exposed in the viewer. See the FarFieldSpherical pattern operations documentation for details.
+A brick-wall mode filter (Taper 0) spreads the residual of a removed reflection along the whole cut with slowly decaying sidelobes. A taper of a few to ten orders confines that residual at the cost of retaining slightly more of the reflection. See the FarFieldSpherical pattern operations documentation for the weights and measured trade-off.
 
 ---
 

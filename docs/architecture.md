@@ -168,7 +168,7 @@ All processing operations are stored declaratively in `_processing_state`:
 ```python
 _processing_state = {
     'phase_center_translation': None,   # [x, y, z] list in meters, or None
-    'mars_max_extent': None,            # float in meters, or None
+    'mars': None,                       # (max_extent_m, taper_orders), or None
     'coordinate_format': None,          # 'central', 'sided', or None (keep original)
     'theta_origin_shift': None,         # float in degrees, or None
     'phi_origin_shift': None,           # float in degrees, or None
@@ -216,8 +216,9 @@ def apply_processing(self):
         processed.translate(translation)
 
     # 7. MARS algorithm
-    if self._processing_state['mars_max_extent'] is not None:
-        processed.apply_mars(self._processing_state['mars_max_extent'])
+    if self._processing_state['mars'] is not None:
+        max_extent, taper = self._processing_state['mars']
+        processed.apply_mars(max_extent, taper=taper)
 
     self._pattern = processed
     self.pattern_modified.emit(processed)
@@ -826,8 +827,9 @@ def apply_processing(self):
         processed.apply_taper(self._processing_state['taper_window'])
 
     # 8. MARS (was step 7, now step 8)
-    if self._processing_state['mars_max_extent'] is not None:
-        processed.apply_mars(self._processing_state['mars_max_extent'])
+    if self._processing_state['mars'] is not None:
+        max_extent, taper = self._processing_state['mars']
+        processed.apply_mars(max_extent, taper=taper)
 
     self._pattern = processed
     self.pattern_modified.emit(processed)
