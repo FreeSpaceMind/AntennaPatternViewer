@@ -362,10 +362,10 @@ class PlotWidget(QWidget):
             # onto the next successful plot.
             self.clear_saved_limits()
             logger.exception("Plotting error: %s", e)
-            import traceback
-            traceback.print_exc()
-        
-        self.canvas.draw()
+            # The success path is drawn by update_plot_formatting(); only the
+            # error placeholder needs its own draw. Drawing here unconditionally
+            # rendered every figure twice.
+            self.canvas.draw()
 
     def update_comparison_plot(self, patterns, labels, frequencies, phi_angles,
                                value_type, show_cross_pol, unwrap_phase=True):
@@ -442,11 +442,9 @@ class PlotWidget(QWidget):
             self.ax.set_xlim(0, 1)
             self.ax.set_ylim(0, 1)
             self.ax.axis('off')
-            print(f"Comparison plotting error: {e}")
-            import traceback
-            traceback.print_exc()
-
-        self.canvas.draw()
+            self.clear_saved_limits()
+            logger.exception("Comparison plotting error: %s", e)
+            self.canvas.draw()
 
     def update_controls_for_plot_format(self, format_changing=False):
         """Update axis control visibility and memory based on current plot format in PlotWidget."""

@@ -71,6 +71,9 @@ class PatternDataModel(QObject):
         # Processing state (mirrors the active instance's; see set_active_instance)
         self._processing_state = default_processing_state()
 
+        # Intermediate pipeline results keyed by settings prefix; see _run_pipeline
+        self._pipeline_cache: Dict[str, Any] = {}
+
         # View parameters
         self._view_params = {
             'selected_frequencies': [],
@@ -162,46 +165,94 @@ class PatternDataModel(QObject):
         logger.info("Processing applied to pattern")
         self.pattern_modified.emit(processed)
 
+    # The pipeline, in order. Each entry is (state key, function applying that
+    # setting to a pattern in place). Coordinate format first because later
+    # steps depend on it; polarization next so it survives every other toggle;
+    # measurement corrections in the measurement frame; rotation last, after
+    # the phase centre has been moved to the origin.
+    PIPELINE = (
+        ('coordinate_format',
+         lambda p, v: p.transform_coordinates(v)),
+        ('polarization',
+         lambda p, v: p.assign_polarization(v)),
+        ('amplitude_normalization',
+         lambda p, v: p.normalize_amplitude(v)),
+        ('boresight_normalization',
+         lambda p, v: p.normalize_at_boresight()),
+        ('theta_origin_shift',
+         lambda p, v: p.shift_theta_origin(v)),
+        ('phi_origin_shift',
+         lambda p, v: p.shift_phi_origin(v)),
+        ('phase_center_translation',
+         lambda p, v: p.translate(list(v))),
+        ('mars_max_extent',
+         lambda p, v: p.apply_mars(v)),
+        ('rotation',
+         lambda p, v: p.rotate(v[0], v[1], v[2], method=v[3])),
+    )
+
     @staticmethod
-    def _run_pipeline(original: Any, state: Dict[str, Any]) -> Any:
-        """Apply `state` to a copy of `original` and return the result."""
-        import numpy as np
+    def _freeze(value: Any):
+        """Make a setting hashable for use in a cache key."""
+        if isinstance(value, (list, tuple)):
+            return tuple(PatternDataModel._freeze(v) for v in value)
+        if hasattr(value, 'tolist'):
+            return PatternDataModel._freeze(value.tolist())
+        return value
 
-        processed = original.copy()
+    @classmethod
+    def _is_enabled(cls, key: str, value: Any) -> bool:
+        return value is not None and value is not False
 
-        # Coordinate transformation first: later steps depend on the format
-        if state.get('coordinate_format') is not None:
-            processed.transform_coordinates(state['coordinate_format'])
+    def _run_pipeline(self, original: Any, state: Dict[str, Any]) -> Any:
+        """
+        Apply `state` to a copy of `original` and return the result.
 
-        # Polarization is part of the pipeline so that it survives every other
-        # toggle. Applied in place elsewhere it would be undone by the next
-        # rebuild from the original.
-        if state.get('polarization') is not None:
-            processed.assign_polarization(state['polarization'])
+        Intermediate results are cached by the prefix of settings that
+        produced them, so toggling a late step (rotation, say) re-runs only
+        the steps from that point on rather than the whole pipeline. The cache
+        holds one pattern per pipeline step and is cleared when the original
+        pattern changes.
+        """
+        cache = self._pipeline_cache
+        if cache.get('source') is not original:
+            cache.clear()
+            cache['source'] = original
+            cache['steps'] = {}
 
-        if state.get('amplitude_normalization') is not None:
-            processed.normalize_amplitude(state['amplitude_normalization'])
+        steps = cache['steps']
+        prefix = ()
+        # Longest cached prefix that matches the requested state. Snapshots
+        # exist only after steps that ran, so a disabled step in between has
+        # no entry of its own; keep scanning rather than stopping at the first
+        # gap, since a stored prefix of length L implies the first L match.
+        start_index = 0
+        base = None
+        for index, (key, _apply) in enumerate(self.PIPELINE):
+            prefix = prefix + ((key, self._freeze(state.get(key))),)
+            if prefix in steps:
+                start_index = index + 1
+                base = steps[prefix]
 
-        if state.get('boresight_normalization'):
-            processed.normalize_at_boresight()
+        processed = (base if base is not None else original).copy()
 
-        # Measurement corrections
-        if state.get('theta_origin_shift') is not None:
-            processed.shift_theta_origin(state['theta_origin_shift'])
+        prefix = tuple((key, self._freeze(state.get(key)))
+                       for key, _apply in self.PIPELINE[:start_index])
+        for key, apply in self.PIPELINE[start_index:]:
+            value = state.get(key)
+            if self._is_enabled(key, value):
+                apply(processed, value)
+            prefix = prefix + ((key, self._freeze(value)),)
+            # Cache a snapshot only where a step actually ran; identical
+            # prefixes for disabled steps would just duplicate the pattern.
+            if self._is_enabled(key, value):
+                steps[prefix] = processed.copy()
 
-        if state.get('phi_origin_shift') is not None:
-            processed.shift_phi_origin(state['phi_origin_shift'])
-
-        if state.get('phase_center_translation') is not None:
-            processed.translate(np.array(state['phase_center_translation']))
-
-        if state.get('mars_max_extent') is not None:
-            processed.apply_mars(state['mars_max_extent'])
-
-        # Antenna orientation, last
-        if state.get('rotation') is not None:
-            alpha, beta, gamma, method = state['rotation']
-            processed.rotate(alpha, beta, gamma, method=method)
+        # Keep the cache bounded: one entry per enabled step of the current
+        # state, plus the most recent alternatives, is plenty.
+        if len(steps) > 3 * len(self.PIPELINE):
+            for stale in list(steps)[:len(steps) - 2 * len(self.PIPELINE)]:
+                del steps[stale]
 
         return processed
 
