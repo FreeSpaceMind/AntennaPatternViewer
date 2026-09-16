@@ -499,8 +499,8 @@ class AnalysisPanel(QWidget):
             # Create and configure worker thread
             # Hand the worker its own copy: processing can replace the model's
             # pattern while the calculation is running.
-            self.swe_worker = SWEWorker(self.current_pattern.copy(), frequency,
-                                        nmax=nmax, mmax=mmax)
+            self.swe_worker = SWEWorker(self.current_pattern.copy(), frequencies,
+                                        r=radius, nmax=nmax, mmax=mmax)
 
             # Connect signals
             self.swe_worker.finished.connect(self.on_swe_finished)
@@ -992,6 +992,19 @@ class AnalysisPanel(QWidget):
             logger.error("Cross-pol CSV export failed: %s", e)
 
     # Getter methods
+    def _set_all_swe_frequencies(self, state):
+        """Set the checked state of every SWE frequency."""
+        for index in range(self.swe_freq_list.count()):
+            self.swe_freq_list.item(index).setCheckState(state)
+
+    def get_swe_frequencies(self):
+        """Get all frequencies checked for SWE calculation."""
+        return [
+            float(self.swe_freq_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.swe_freq_list.count())
+            if self.swe_freq_list.item(index).checkState() == Qt.CheckState.Checked
+        ]
+
     def resolve_swe_frequency(self, pattern):
         """
         The SWE frequency to use, honouring the frequency combo.

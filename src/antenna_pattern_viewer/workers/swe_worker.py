@@ -2,9 +2,11 @@
 Worker thread for SWE calculations to prevent GUI freezing.
 """
 
+import inspect
 import logging
 import traceback
 
+import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
