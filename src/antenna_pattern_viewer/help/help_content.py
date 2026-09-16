@@ -33,7 +33,7 @@ def _get_farfield_docs_dir() -> Optional[Path]:
         pass
 
     # Fallback: try relative path from APV
-    fallback = Path(__file__).parent.parent.parent.parent.parent.parent / "FarFieldSpherical" / "docs"
+    fallback = Path(__file__).parent.parent.parent.parent.parent / "FarFieldSpherical" / "docs"
     if fallback.exists():
         return fallback
     return None
@@ -51,7 +51,7 @@ def _get_swe_docs_dir() -> Optional[Path]:
         pass
 
     # Fallback: try relative path from APV
-    fallback = Path(__file__).parent.parent.parent.parent.parent.parent / "spherical_wave_expansion" / "docs"
+    fallback = Path(__file__).parent.parent.parent.parent.parent / "spherical_wave_expansion" / "docs"
     if fallback.exists():
         return fallback
     return None

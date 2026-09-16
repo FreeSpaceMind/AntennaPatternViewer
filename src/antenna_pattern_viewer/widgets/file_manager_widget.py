@@ -34,6 +34,10 @@ from farfield_spherical import (
 from ..dialogs.sph_frequency_dialog import SphFrequencyDialog
 from ..pattern_instance import PatternInstance
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class CutFileDialog(QDialog):
     """Dialog for getting frequency information for .cut files."""
@@ -62,6 +66,18 @@ class CutFileDialog(QDialog):
         self.freq_end_spin.setDecimals(3)
         layout.addRow("End Frequency:", self.freq_end_spin)
 
+        # read_cut spreads the frequencies evenly from start to end, so an end
+        # below the start silently produces a descending frequency axis.
+        self.freq_start_spin.valueChanged.connect(self._on_start_changed)
+        self.freq_end_spin.valueChanged.connect(self._on_end_changed)
+
+        self.freq_hint = QLabel(
+            "A single frequency uses the same value for both. Otherwise the "
+            "file's cuts are spread evenly from start to end.")
+        self.freq_hint.setWordWrap(True)
+        self.freq_hint.setStyleSheet("font-size: 9pt; color: #666;")
+        layout.addRow(self.freq_hint)
+
         # Buttons
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
@@ -70,6 +86,20 @@ class CutFileDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+
+    def _on_start_changed(self, value):
+        """Push the end frequency up so it never falls below the start."""
+        if self.freq_end_spin.value() < value:
+            self.freq_end_spin.blockSignals(True)
+            self.freq_end_spin.setValue(value)
+            self.freq_end_spin.blockSignals(False)
+
+    def _on_end_changed(self, value):
+        """Pull the start frequency down so it never exceeds the end."""
+        if self.freq_start_spin.value() > value:
+            self.freq_start_spin.blockSignals(True)
+            self.freq_start_spin.setValue(value)
+            self.freq_start_spin.blockSignals(False)
 
     def get_frequencies(self):
         """Return frequencies in Hz."""
@@ -191,6 +221,15 @@ class QuickAccessItem(QListWidgetItem):
         self.setToolTip(path)
 
 
+def _as_string_list(value):
+    """Coerce a QSettings value that should be a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value]
+
+
 class FileManagerWidget(QWidget):
     """
     Redesigned file manager widget for pattern loading and management.
@@ -229,10 +268,18 @@ class FileManagerWidget(QWidget):
         self.connect_signals()
         self.setAcceptDrops(True)
 
+        # Background loading state; see load_pattern_files()
+        self._load_workers = []
+        self._load_failures = []
+        self._load_total = 0
+
     def load_settings(self):
         """Load saved settings."""
-        self.recent_files = self.settings.value(self.SETTINGS_RECENT_FILES, []) or []
-        self.favorites = self.settings.value(self.SETTINGS_FAVORITES, []) or []
+        # QSettings returns a bare str for a one-element list on some backends
+        # (the Windows registry among them), which would then be sliced and
+        # iterated character by character.
+        self.recent_files = _as_string_list(self.settings.value(self.SETTINGS_RECENT_FILES, []))
+        self.favorites = _as_string_list(self.settings.value(self.SETTINGS_FAVORITES, []))
         last_dir = self.settings.value(self.SETTINGS_LAST_DIR, QDir.homePath())
         self.current_directory = last_dir if Path(last_dir).exists() else QDir.homePath()
 
@@ -301,7 +348,11 @@ class FileManagerWidget(QWidget):
         self.preview_label.setMaximumHeight(50)
         main_layout.addWidget(self.preview_label)
 
-        # Note: Loaded Patterns and Comparison sections moved to PatternStrip widget
+        # Progress line for background loading; see load_pattern_files()
+        self.load_status = QLabel("")
+        self.load_status.setWordWrap(True)
+        self.load_status.setStyleSheet("font-size: 9pt; color: #666;")
+        main_layout.addWidget(self.load_status)
 
     def create_toolbar(self) -> QWidget:
         """Create toolbar with Open, Recent, and Search."""
@@ -450,7 +501,6 @@ class FileManagerWidget(QWidget):
 
     def connect_signals(self):
         """Connect data model signals."""
-        # Note: Pattern management moved to PatternStrip widget
         pass
 
     # === FILE OPERATIONS ===
@@ -472,8 +522,7 @@ class FileManagerWidget(QWidget):
             self.save_settings()
 
             # Load each file
-            for file_path in files:
-                self.load_pattern_file(Path(file_path))
+            self.load_pattern_files(files)
 
     def load_selected_files(self):
         """Load selected files from browser."""
@@ -489,75 +538,128 @@ class FileManagerWidget(QWidget):
                 if file_path.is_file():
                     file_paths.add(file_path)
 
+        self.load_pattern_files(sorted(file_paths))
+
+    def load_pattern_files(self, file_paths):
+        """
+        Load several pattern files in the background.
+
+        Format-specific options are collected here, on the GUI thread, because
+        they need a modal dialog. The reads themselves run in a worker so the
+        window stays responsive, which matters because a large file takes
+        seconds and a dropped directory multiplies that.
+        """
+        jobs = []
         for file_path in file_paths:
-            self.load_pattern_file(file_path)
+            file_path = Path(file_path)
+            try:
+                read = self._make_reader(file_path)
+            except Exception as e:
+                logger.exception("Could not prepare %s", file_path)
+                self._load_failures.append((file_path.name, str(e)))
+                continue
+            if read is not None:          # None: the user cancelled the dialog
+                jobs.append((file_path, read))
+
+        if not jobs:
+            self._report_load_failures(len(list(file_paths)))
+            return
+
+        self._load_total = len(list(file_paths))
+        self._start_load_worker(jobs)
+
+    def _make_reader(self, file_path: Path):
+        """
+        Build a no-argument callable that reads ``file_path``.
+
+        Returns None when the user cancels a format-specific import dialog.
+
+        Raises:
+            ValueError: If the extension is not supported
+        """
+        suffix = file_path.suffix.lower()
+        path_str = str(file_path)
+
+        if suffix == '.cut':
+            dialog = CutFileDialog(file_path.name, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return None
+            freq_start, freq_end = dialog.get_frequencies()
+            return lambda: read_cut(path_str, freq_start, freq_end)
+
+        if suffix == '.ffd':
+            return lambda: read_ffd(path_str)
+
+        if suffix == '.npz':
+            return lambda: load_pattern_npz(path_str)[0]
+
+        if suffix == '.sph':
+            def read_sph():
+                from farfield_spherical.io.readers import read_ticra_sph
+                from farfield_spherical.io.swe_utils import create_pattern_from_swe
+                return create_pattern_from_swe(read_ticra_sph(path_str))
+            return read_sph
+
+        if suffix == '.atams':
+            dialog = AtamsFileDialog(file_path.name, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return None
+            interpolate = dialog.get_interpolate()
+            return lambda: read_atams(path_str, interpolate=interpolate)
+
+        raise ValueError(f"Unsupported file format: {suffix}")
+
+    def _start_load_worker(self, jobs):
+        """Run the prepared read jobs in a background thread."""
+        from antenna_pattern_viewer.workers import PatternLoadWorker
+
+        worker = PatternLoadWorker(jobs, parent=self)
+        worker.loaded.connect(self._on_pattern_loaded)
+        worker.failed.connect(self._on_pattern_load_failed)
+        worker.progress.connect(self._on_load_progress)
+        worker.finished.connect(lambda: self._on_load_finished(worker))
+        self._load_workers.append(worker)
+        worker.start()
+
+    def _on_load_progress(self, file_path, index, total):
+        self.load_status.setText(f"Loading {file_path.name} ({index} of {total})...")
+
+    def _on_pattern_loaded(self, file_path, pattern):
+        """Add a successfully read pattern to the model (on the GUI thread)."""
+        instance = PatternInstance(
+            pattern=pattern,
+            source_file=file_path,
+            display_name=file_path.name,
+            load_timestamp=time.time()
+        )
+        self.data_model.add_instance(instance)
+        self._add_to_recent(str(file_path))
+
+    def _on_pattern_load_failed(self, file_path, message, detail):
+        self._load_failures.append((file_path.name, message))
+
+    def _on_load_finished(self, worker):
+        """Report any failures once the batch is done and release the thread."""
+        self.load_status.setText("")
+        self._report_load_failures(self._load_total)
+        if worker in self._load_workers:
+            self._load_workers.remove(worker)
+        worker.deleteLater()
+
+    def _report_load_failures(self, total):
+        """Show one summary for a batch instead of a dialog per bad file."""
+        failures, self._load_failures = self._load_failures, []
+        if not failures:
+            return
+        box = QMessageBox(QMessageBox.Icon.Warning, "Load Errors",
+                          f"{len(failures)} of {total} file(s) could not be loaded.",
+                          parent=self)
+        box.setDetailedText("\n".join(f"{name}: {message}" for name, message in failures))
+        box.exec()
 
     def load_pattern_file(self, file_path: Path):
-        """Load a pattern file and create an instance."""
-        try:
-            suffix = file_path.suffix.lower()
-
-            if suffix == '.cut':
-                dialog = CutFileDialog(file_path.name, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    freq_start, freq_end = dialog.get_frequencies()
-                    pattern = read_cut(str(file_path), freq_start, freq_end)
-                else:
-                    return
-
-            elif suffix == '.ffd':
-                pattern = read_ffd(str(file_path))
-
-            elif suffix == '.npz':
-                pattern, _ = load_pattern_npz(str(file_path))
-
-            elif suffix == '.sph':
-                freqs = scan_sph_frequencies(file_path)
-                selected = None
-                if len(freqs) == 1:
-                    selected = freqs[0]
-                else:
-                    dialog = SphFrequencyDialog(file_path.name, freqs, self)
-                    if dialog.exec() == QDialog.DialogCode.Accepted:
-                        selected = dialog.selected_frequencies()
-                    else:
-                        return
-                pattern = FarFieldSpherical.from_ticra_sph(
-                    str(file_path),
-                    frequency=selected,
-                )
-
-            elif suffix == '.atams':
-                dialog = AtamsFileDialog(file_path.name, self)
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    interpolate = dialog.get_interpolate()
-                    pattern = read_atams(str(file_path), interpolate=interpolate)
-                else:
-                    return
-
-            else:
-                raise ValueError(f"Unsupported file format: {suffix}")
-
-            # Create instance
-            instance = PatternInstance(
-                pattern=pattern,
-                source_file=file_path,
-                display_name=file_path.name,
-                load_timestamp=time.time()
-            )
-
-            # Add to model
-            self.data_model.add_instance(instance)
-
-            # Update recent files
-            self._add_to_recent(str(file_path))
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Load Error",
-                f"Failed to load {file_path.name}:\n{str(e)}"
-            )
+        """Load a single pattern file."""
+        self.load_pattern_files([file_path])
 
     def _add_to_recent(self, file_path: str):
         """Add file to recent files list."""
@@ -739,11 +841,11 @@ class FileManagerWidget(QWidget):
 
     def dropEvent(self, event: QDropEvent):
         """Handle file drop."""
-        for url in event.mimeData().urls():
-            if url.isLocalFile():
-                path = Path(url.toLocalFile())
-                if path.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph', '.atams']:
-                    self.load_pattern_file(path)
+        paths = [Path(url.toLocalFile()) for url in event.mimeData().urls()
+                 if url.isLocalFile()]
+        supported = [p for p in paths
+                     if p.suffix.lower() in ['.cut', '.ffd', '.npz', '.sph', '.atams']]
+        if supported:
+            self.load_pattern_files(supported)
         event.acceptProposedAction()
 
-    # Note: Pattern management functions moved to PatternStrip widget

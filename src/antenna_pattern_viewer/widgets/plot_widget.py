@@ -12,10 +12,16 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from typing import Tuple, Optional, Any
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox, QLineEdit, QLabel
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox,
+                             QLineEdit, QLabel, QFileDialog, QMessageBox)
+from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 
 from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PlotWidget(QWidget):
@@ -84,13 +90,18 @@ class PlotWidget(QWidget):
         # Normalize Checkbox
         self.normalize_check = QCheckBox("Normalize")
         self.normalize_check.setChecked(False)
-        self.normalize_check.toggled.connect(self.replot_current_data)
+        # toggled() passes the checkbox state, which would land in
+        # preserve_limits. Normalizing changes the y scale, so the old limits
+        # must not be kept.
+        self.normalize_check.toggled.connect(
+            lambda _checked: self.replot_current_data(preserve_limits=False))
         format_layout.addWidget(self.normalize_check)
 
         # Smooth checkbox (for 2D plots - bicubic interpolation)
         self.smooth_check = QCheckBox("Smooth")
         self.smooth_check.setChecked(False)
-        self.smooth_check.toggled.connect(self.replot_current_data)
+        self.smooth_check.toggled.connect(
+            lambda _checked: self.replot_current_data(preserve_limits=True))
         self.smooth_check.setVisible(False)  # Initially hidden, shown only for 2D plots
         format_layout.addWidget(self.smooth_check)
 
@@ -158,6 +169,15 @@ class PlotWidget(QWidget):
         self.reset_scale_btn.clicked.connect(self.reset_scale)
         format_layout.addWidget(self.reset_scale_btn)
 
+        # Export what is on screen, which is the common ask after looking at a
+        # cut. The Export panel writes whole patterns, not the plotted curves.
+        self.export_curves_btn = QPushButton("Export Plot Data")
+        self.export_curves_btn.setToolTip(
+            "Write the plotted curves to CSV: one column of x values and one "
+            "column per trace, exactly as displayed")
+        self.export_curves_btn.clicked.connect(self.export_plotted_data)
+        format_layout.addWidget(self.export_curves_btn)
+
         format_layout.addStretch()
         
         # Add to main layout
@@ -218,6 +238,15 @@ class PlotWidget(QWidget):
         # Update control labels and visibility based on plot format
         self.update_controls_for_plot_format(format_changing)
 
+        # Axis limits describe the pattern they were taken from. Keeping them
+        # across a different pattern leaves a narrow-beam pattern drawn on a
+        # +/-180 degree axis, so they are dropped when the pattern changes.
+        pattern_key = id(pattern) if pattern is not None else None
+        if pattern_key != getattr(self, '_limits_pattern_key', None):
+            self.clear_saved_limits()
+            self._limits_pattern_key = pattern_key
+            preserve_limits = False
+
         # Save current matplotlib axis limits before clearing (skip if resetting)
         if preserve_limits and self.figure.axes:
             ax = self.figure.axes[0]
@@ -253,9 +282,11 @@ class PlotWidget(QWidget):
                     statistic_over = 'phi'
                     freq_for_stats = frequencies if isinstance(frequencies, (int, float)) else frequencies[0]
                 
-                phi_for_stats = None if statistic_over == 'phi' else (
+                # Pass the selected cuts through for statistic_over='phi' too,
+                # so the statistics describe what the user chose.
+                phi_for_stats = (phi_angles if statistic_over == 'phi' else (
                     phi_angles if isinstance(phi_angles, (int, float)) else phi_angles[0]
-                )
+                ))
                 
                 plot_pattern_statistics(
                     pattern=pattern,
@@ -327,11 +358,14 @@ class PlotWidget(QWidget):
             self.ax.set_xlim(0, 1)
             self.ax.set_ylim(0, 1)
             self.ax.axis('off')
-            print(f"Plotting error: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        self.canvas.draw()
+            # Do not let the 0-1 placeholder limits be captured and then pinned
+            # onto the next successful plot.
+            self.clear_saved_limits()
+            logger.exception("Plotting error: %s", e)
+            # The success path is drawn by update_plot_formatting(); only the
+            # error placeholder needs its own draw. Drawing here unconditionally
+            # rendered every figure twice.
+            self.canvas.draw()
 
     def update_comparison_plot(self, patterns, labels, frequencies, phi_angles,
                                value_type, show_cross_pol, unwrap_phase=True):
@@ -408,11 +442,9 @@ class PlotWidget(QWidget):
             self.ax.set_xlim(0, 1)
             self.ax.set_ylim(0, 1)
             self.ax.axis('off')
-            print(f"Comparison plotting error: {e}")
-            import traceback
-            traceback.print_exc()
-
-        self.canvas.draw()
+            self.clear_saved_limits()
+            logger.exception("Comparison plotting error: %s", e)
+            self.canvas.draw()
 
     def update_controls_for_plot_format(self, format_changing=False):
         """Update axis control visibility and memory based on current plot format in PlotWidget."""
@@ -516,101 +548,6 @@ class PlotWidget(QWidget):
             
         return vmin, vmax
 
-    def get_colorbar_limits(self):
-        """Get colorbar limits from Z-axis controls."""
-        try:
-            vmin = float(self.z_min_edit.text()) if self.z_min_edit.text().strip() else None
-        except ValueError:
-            vmin = None
-            
-        try:
-            vmax = float(self.z_max_edit.text()) if self.z_max_edit.text().strip() else None
-        except ValueError:
-            vmax = None
-            
-        return vmin, vmax
-    
-    def apply_plot_formatting(self, ax):
-        """Apply current formatting settings to the axes."""
-        # Check if this is a polar plot
-        is_polar = hasattr(ax, 'set_theta_zero_location')
-        
-        # Grid - works for both regular and polar plots
-        ax.grid(self.grid_check.isChecked())
-        
-        if is_polar:
-            # Handle polar plot formatting
-            
-            # Colorbar visibility
-            if hasattr(self, 'current_colorbar') and self.current_colorbar:
-                self.current_colorbar.ax.set_visible(self.legend_colorbar_check.isChecked())
-                
-                # Update colorbar limits if changed
-                try:
-                    vmin, vmax = self.get_colorbar_limits()
-                    if vmin is not None or vmax is not None:
-                        mappable = self.current_colorbar.mappable
-                        current_vmin, current_vmax = mappable.get_clim()
-                        new_vmin = vmin if vmin is not None else current_vmin
-                        new_vmax = vmax if vmax is not None else current_vmax
-                        mappable.set_clim(vmin=new_vmin, vmax=new_vmax)
-                        self.current_colorbar.update_normal(mappable)
-                except (ValueError, AttributeError):
-                    pass
-            
-            # Phi (angular) limits - only if X-axis controls are visible
-            # (Skip this since we're hiding X-axis controls for 2D plots)
-            # Users can still zoom/pan with toolbar if needed
-            
-            # Theta (radial) limits
-            try:
-                theta_min = float(self.y_theta_min_edit.text()) if self.y_theta_min_edit.text().strip() else None
-                theta_max = float(self.y_theta_max_edit.text()) if self.y_theta_max_edit.text().strip() else None
-                
-                if theta_min is not None or theta_max is not None:
-                    current_limits = ax.get_ylim()
-                    new_min = theta_min if theta_min is not None else current_limits[0]
-                    new_max = theta_max if theta_max is not None else current_limits[1]
-                    ax.set_ylim(max(0, new_min), new_max)
-            except ValueError:
-                pass
-                
-        else:
-            # Handle regular plot formatting
-            
-            # Legend for 1D plots
-            if self.legend_colorbar_check.isChecked():
-                ax.legend(loc='best')
-            else:
-                legend = ax.get_legend()
-                if legend:
-                    legend.remove()
-            
-            # X-axis limits for 1D plots
-            try:
-                x_min = float(self.x_phi_min_edit.text()) if self.x_phi_min_edit.text().strip() else None
-                x_max = float(self.x_phi_max_edit.text()) if self.x_phi_max_edit.text().strip() else None
-                
-                if x_min is not None or x_max is not None:
-                    current_limits = ax.get_xlim()
-                    new_min = x_min if x_min is not None else current_limits[0]
-                    new_max = x_max if x_max is not None else current_limits[1]
-                    ax.set_xlim(new_min, new_max)
-            except ValueError:
-                pass
-            
-            # Y-axis limits for 1D plots
-            try:
-                y_min = float(self.y_theta_min_edit.text()) if self.y_theta_min_edit.text().strip() else None
-                y_max = float(self.y_theta_max_edit.text()) if self.y_theta_max_edit.text().strip() else None
-                
-                if y_min is not None or y_max is not None:
-                    current_limits = ax.get_ylim()
-                    new_min = y_min if y_min is not None else current_limits[0]
-                    new_max = y_max if y_max is not None else current_limits[1]
-                    ax.set_ylim(new_min, new_max)
-            except ValueError:
-                pass
     def replot_current_data(self, preserve_limits=True):
         """Replot using stored parameters."""
         if self.current_pattern is not None:
@@ -708,6 +645,94 @@ class PlotWidget(QWidget):
         # Replot with auto-scale (don't preserve old limits)
         self.replot_current_data(preserve_limits=False)
 
+    @staticmethod
+    def _apply_axis_limit(setter, getter, min_text, max_text):
+        """
+        Apply whichever of a minimum and maximum the user actually typed.
+
+        An empty field keeps the current value for that end of the axis, so a
+        lower bound on its own works.
+        """
+        min_text = (min_text or "").strip()
+        max_text = (max_text or "").strip()
+        if not min_text and not max_text:
+            return
+        current_min, current_max = getter()
+        try:
+            new_min = float(min_text) if min_text else current_min
+            new_max = float(max_text) if max_text else current_max
+        except ValueError:
+            return
+        if new_min != new_max:
+            setter(new_min, new_max)
+
+    def get_plotted_data(self):
+        """
+        The curves currently drawn, as (x_label, x_values, [(label, y), ...]).
+
+        Taken from the axes rather than recomputed, so what is written is what
+        is displayed, including normalization and the chosen component.
+        Returns None when nothing is plotted.
+        """
+        if not self.figure.axes:
+            return None
+        ax = self.figure.axes[0]
+        traces = []
+        for index, line in enumerate(ax.get_lines()):
+            label = line.get_label()
+            if label.startswith('_'):
+                label = f"trace_{index + 1}"
+            traces.append((label, line.get_xdata(), line.get_ydata()))
+        if not traces:
+            return None
+        return ax.get_xlabel() or 'x', ax.get_ylabel() or 'y', traces
+
+    def export_plotted_data(self):
+        """Write the plotted curves to CSV."""
+        import csv
+
+        plotted = self.get_plotted_data()
+        if plotted is None:
+            QMessageBox.information(self, "Nothing to Export",
+                                    "There is no plotted data to export.")
+            return
+        x_label, y_label, traces = plotted
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Plot Data", "plot_data.csv",
+            "CSV Files (*.csv);;All Files (*)")
+        if not file_path:
+            return
+        if not Path(file_path).suffix:
+            file_path = f"{file_path}.csv"
+
+        # Traces can differ in length (a comparison of patterns sampled
+        # differently), so each one carries its own x column.
+        try:
+            with open(file_path, 'w', newline='') as handle:
+                writer = csv.writer(handle)
+                header = []
+                for label, _x, _y in traces:
+                    header += [f"{x_label} [{label}]", f"{y_label} [{label}]"]
+                writer.writerow(header)
+                for row in range(max(len(x) for _l, x, _y in traces)):
+                    values = []
+                    for _label, x, y in traces:
+                        values += ([x[row], y[row]] if row < len(x) else ['', ''])
+                    writer.writerow(values)
+        except OSError as e:
+            logger.error("Could not write %s: %s", file_path, e)
+            QMessageBox.critical(self, "Export Failed", f"Could not write the file:\n{e}")
+            return
+
+        logger.info("Exported %d trace(s) to %s", len(traces), file_path)
+
+    def clear_saved_limits(self):
+        """Forget the remembered axis limits so the next plot auto-scales."""
+        for key in self.current_matplotlib_limits:
+            for axis in self.current_matplotlib_limits[key]:
+                self.current_matplotlib_limits[key][axis] = None
+
     def update_plot_formatting(self):
         """Update plot formatting without replotting data."""
         if not self.figure.axes:
@@ -739,13 +764,8 @@ class PlotWidget(QWidget):
                     self.current_colorbar.update_normal(mappable)
             
             # Theta (radial) limits
-            try:
-                theta_min = self.y_theta_min_edit.text()
-                theta_max = self.y_theta_max_edit.text()
-                if theta_min and theta_max:
-                    ax.set_ylim(float(theta_min), float(theta_max))
-            except ValueError:
-                pass
+            self._apply_axis_limit(ax.set_ylim, ax.get_ylim,
+                                   self.y_theta_min_edit.text(), self.y_theta_max_edit.text())
         else:
             # Handle 1D plot formatting
             
@@ -753,18 +773,11 @@ class PlotWidget(QWidget):
             if ax.get_legend():
                 ax.get_legend().set_visible(self.legend_colorbar_check.isChecked())
             
-            # X and Y axis limits
-            try:
-                x_min = self.x_phi_min_edit.text()
-                x_max = self.x_phi_max_edit.text()
-                if x_min and x_max:
-                    ax.set_xlim(float(x_min), float(x_max))
-                
-                y_min = self.y_theta_min_edit.text()
-                y_max = self.y_theta_max_edit.text()
-                if y_min and y_max:
-                    ax.set_ylim(float(y_min), float(y_max))
-            except ValueError:
-                pass
+            # X and Y axis limits. A minimum on its own is applied too;
+            # requiring both fields meant typing one did nothing.
+            self._apply_axis_limit(ax.set_xlim, ax.get_xlim,
+                                   self.x_phi_min_edit.text(), self.x_phi_max_edit.text())
+            self._apply_axis_limit(ax.set_ylim, ax.get_ylim,
+                                   self.y_theta_min_edit.text(), self.y_theta_max_edit.text())
         
         self.canvas.draw()

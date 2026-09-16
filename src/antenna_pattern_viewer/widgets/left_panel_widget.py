@@ -15,7 +15,7 @@ Usage:
         data_model,
         first_panel_widget=generator_widget,
         first_panel_config={"icon": "🔧", "tooltip": "Generator - Create patterns", "name": "generator"},
-        show_pattern_strip=False,  # Optional: hide pattern strip
+        show_pattern_strip=False,  # Optional: hide the pattern list
     )
 """
 from PyQt6.QtWidgets import (
@@ -42,7 +42,7 @@ class LeftPanelWidget(QWidget):
 
     Layout:
     +----------+----------------------+
-    |          | PatternStrip         |
+    |          | PatternListWidget    |
     | Icon     +----------------------+
     | Sidebar  | QStackedWidget       |
     |  Custom  |  [0] CustomPanel     |
@@ -59,7 +59,7 @@ class LeftPanelWidget(QWidget):
             If None, uses FileManagerWidget.
         first_panel_config: Optional dict with icon/tooltip for first panel.
             Keys: "icon", "tooltip", "name"
-        show_pattern_strip: Whether to show the pattern strip (default True)
+        show_pattern_strip: Whether to show the pattern list (default True)
         parent: Parent widget
     """
 
@@ -192,8 +192,9 @@ class LeftPanelWidget(QWidget):
     def on_view_params_changed(self):
         """Handle view parameter changes from view panel."""
         params = self.view_panel.get_current_parameters()
+        # update_view_params emits view_parameters_changed itself; emitting it
+        # again here rebuilt every figure twice per interaction.
         self.data_model.update_view_params(params)
-        self.data_model.view_parameters_changed.emit(params)
 
     def on_comparison_set_changed(self, comparison_ids):
         """Handle comparison set changes - update view panel status."""
@@ -246,13 +247,12 @@ class LeftPanelWidget(QWidget):
                 logger.info("Phase center shift disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
 
         except Exception as e:
             logger.error(f"Failed to toggle phase center: {e}", exc_info=True)
 
-    def on_apply_mars(self, max_radial_extent):
-        """Handle MARS toggle."""
+    def on_apply_mars(self, max_radial_extent, taper=0):
+        """Handle MARS toggle or a change of its extent/taper."""
         if self.data_model.original_pattern is None:
             return
 
@@ -260,38 +260,29 @@ class LeftPanelWidget(QWidget):
             is_checked = self.processing_panel.apply_mars_check.isChecked()
 
             if is_checked:
-                self.data_model.set_mars(max_radial_extent)
-                logger.info(f"MARS enabled: max_extent={max_radial_extent}")
+                self.data_model.set_mars(max_radial_extent, taper)
+                logger.info(f"MARS enabled: max_extent={max_radial_extent}, taper={taper}")
             else:
                 self.data_model.set_mars(None)
                 logger.info("MARS disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
 
         except Exception as e:
             logger.error(f"Failed to toggle MARS: {e}", exc_info=True)
 
     def on_polarization_changed(self, polarization):
-        """Handle polarization change."""
-        if self.data_model.pattern is None:
+        """Handle polarization change (a processing step, not a one-off edit)."""
+        if self.data_model.original_pattern is None:
             return
-
-        # Skip if already at this polarization
-        if polarization == self.data_model.pattern.polarization:
+        if self.data_model.pattern is not None and polarization == self.data_model.pattern.polarization:
             return
 
         try:
-            pattern = self.data_model.pattern.copy()
-            pattern.assign_polarization(polarization)
-            self.data_model._pattern = pattern
-            self.data_model.pattern_modified.emit(pattern)
-            self.data_model.processing_applied.emit("polarization_conversion")
-            self.processing_panel.on_pattern_loaded(pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
-
+            self.data_model.set_polarization(polarization)
+            self.processing_panel.on_pattern_loaded(self.data_model.pattern)
         except Exception as e:
-            logger.error(f"Failed to convert polarization: {e}")
+            logger.error(f"Failed to convert polarization: {e}", exc_info=True)
 
     def on_coordinate_format_changed(self, format_type):
         """Handle coordinate format change."""
@@ -322,7 +313,6 @@ class LeftPanelWidget(QWidget):
                 logger.info("Theta origin shift disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
 
         except Exception as e:
             logger.error(f"Failed to toggle theta origin shift: {e}", exc_info=True)
@@ -343,7 +333,6 @@ class LeftPanelWidget(QWidget):
                 logger.info("Rotation disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
 
         except Exception as e:
             logger.error(f"Failed to apply rotation: {e}", exc_info=True)
@@ -364,7 +353,6 @@ class LeftPanelWidget(QWidget):
                 logger.info("Phi origin shift disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
 
         except Exception as e:
             logger.error(f"Failed to toggle phi origin shift: {e}", exc_info=True)
@@ -385,7 +373,6 @@ class LeftPanelWidget(QWidget):
                 logger.info("Amplitude normalization disabled")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
 
         except Exception as e:
             logger.error(f"Failed to toggle amplitude normalization: {e}", exc_info=True)
@@ -400,7 +387,6 @@ class LeftPanelWidget(QWidget):
             logger.info(f"Boresight normalization {'enabled' if enabled else 'disabled'}")
 
             self.processing_panel.on_pattern_loaded(self.data_model.pattern)
-            self.data_model.view_parameters_changed.emit(self.data_model._view_params)
 
         except Exception as e:
             logger.error(f"Failed to toggle boresight normalization: {e}", exc_info=True)

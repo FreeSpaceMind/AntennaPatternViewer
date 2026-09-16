@@ -2,10 +2,12 @@
 Worker thread for SWE calculations to prevent GUI freezing.
 """
 
-import inspect
+import logging
+import traceback
 
-import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
+
+logger = logging.getLogger(__name__)
 
 
 class SWEWorker(QThread):
@@ -13,7 +15,7 @@ class SWEWorker(QThread):
     
     # Signals
     finished = pyqtSignal(object)  # Emits SWE object when done
-    error = pyqtSignal(str)  # Emits error message
+    error = pyqtSignal(str)  # Emits error message (the traceback goes to the log)
     progress = pyqtSignal(str)  # Emits progress messages
     
     def __init__(self, pattern, frequency, r, nmax=None, mmax=None):
@@ -130,4 +132,8 @@ class SWEWorker(QThread):
             self.finished.emit(combined)
             
         except Exception as e:
+            # str(e) alone is often unactionable (a bare LinAlgError, say), so
+            # the full traceback is logged even though only the message is
+            # shown in the panel.
+            logger.error("SWE calculation failed:\n%s", traceback.format_exc())
             self.error.emit(str(e))

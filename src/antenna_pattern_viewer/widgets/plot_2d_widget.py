@@ -6,6 +6,10 @@ from PyQt6.QtCore import pyqtSignal
 
 from antenna_pattern_viewer.widgets.plot_widget import PlotWidget
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class Plot2DWidget(QWidget):
     """Widget for 2D pattern visualization."""
     
@@ -66,7 +70,7 @@ class Plot2DWidget(QWidget):
             return
 
         # Get view parameters from model
-        params = self.data_model._view_params
+        params = self.data_model.get_all_view_params()
 
         # Extract parameters
         frequencies = params.get('selected_frequencies', [])
@@ -118,7 +122,7 @@ class Plot2DWidget(QWidget):
                 )
                 self.plot_updated.emit()
             except Exception as e:
-                print(f"Failed to update plot: {e}")
+                logger.exception("Failed to update plot: %s", e)
 
     def _plot_comparison(self, active_pattern, comparison_instances, frequencies,
                          phi_angles, value_type, show_cross_pol, unwrap_phase):
@@ -129,7 +133,9 @@ class Plot2DWidget(QWidget):
         labels = [active_instance.display_name if active_instance else "Active"]
 
         for inst in comparison_instances:
-            patterns.append(inst.pattern)
+            # Use each instance's processed pattern, so a comparison curve
+            # matches what that pattern looks like when it is active.
+            patterns.append(self.data_model.get_instance_pattern(inst))
             labels.append(inst.display_name)
 
         try:
@@ -144,7 +150,7 @@ class Plot2DWidget(QWidget):
             )
             self.plot_updated.emit()
         except Exception as e:
-            print(f"Failed to update comparison plot: {e}")
+            logger.exception("Failed to update comparison plot: %s", e)
     
     def export_plot(self):
         """Export current plot to image file."""

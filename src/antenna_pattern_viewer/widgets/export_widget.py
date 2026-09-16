@@ -108,17 +108,24 @@ class ExportWidget(QWidget):
             QMessageBox.warning(self, "No Data", "No pattern loaded to export.")
             return
         
-        # Get file path from user
+        # Get file path from user. Qt expects "Label (*.ext)"; a bare "*.ext"
+        # is not a valid filter string.
         extension = self.get_file_extension()
+        label = self.file_type_combo.currentText()
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Pattern",
             "",
-            f"*{extension}"
+            f"{label} (*{extension});;All Files (*)"
         )
-        
+
         if not file_path:
             return
+
+        # Append the extension when the user typed a bare name; most writers
+        # do not add one themselves.
+        if not Path(file_path).suffix:
+            file_path = f"{file_path}{extension}"
         
         try:
             # Get pattern based on processing state selection
@@ -137,27 +144,31 @@ class ExportWidget(QWidget):
                 if not selected_freqs:
                     QMessageBox.warning(self, "No Selection",
                                     "No frequency selected. Using first frequency.")
-                    freq_idx = 0
+                    freq_indices = [0]
                 else:
-                    # selected_freqs contains frequency values, find the index
-                    freq_value = selected_freqs[0]
-                    freq_idx = int(np.argmin(np.abs(pattern.frequencies - freq_value)))
+                    # Keep every selected frequency: the View panel allows a
+                    # multiple selection, and exporting only the first one
+                    # silently dropped the rest.
+                    freq_indices = sorted({
+                        int(np.argmin(np.abs(pattern.frequencies - value)))
+                        for value in selected_freqs
+                    })
 
-                # Extract single frequency using data slicing
-                freq_value = pattern.frequencies[freq_idx]
-                # Handle both uniform and non-uniform theta patterns
-                if pattern.has_uniform_theta:
-                    theta_param = pattern.theta_angles
-                else:
-                    theta_param = pattern.theta_grid
-                pattern = FarFieldSpherical(
-                    theta=theta_param,
-                    phi=pattern.phi_angles,
-                    frequency=np.array([freq_value]),
-                    e_theta=pattern.data.e_theta.values[freq_idx:freq_idx+1, :, :],
-                    e_phi=pattern.data.e_phi.values[freq_idx:freq_idx+1, :, :],
-                    polarization=pattern.polarization
-                )
+                if len(freq_indices) < len(pattern.frequencies):
+                    # Handle both uniform and non-uniform theta patterns
+                    if pattern.has_uniform_theta:
+                        theta_param = pattern.theta_angles
+                    else:
+                        theta_param = pattern.theta_grid
+                    pattern = FarFieldSpherical(
+                        theta=theta_param,
+                        phi=pattern.phi_angles,
+                        frequency=pattern.frequencies[freq_indices],
+                        e_theta=pattern.data.e_theta.values[freq_indices, :, :],
+                        e_phi=pattern.data.e_phi.values[freq_indices, :, :],
+                        polarization=pattern.polarization,
+                        metadata=pattern.metadata,
+                    )
             
             self.write_pattern(pattern, file_path)
             
@@ -192,20 +203,16 @@ class ExportWidget(QWidget):
                     "Please calculate SWE in the Analysis tab before exporting to SPH format."
                 )
             
-            available_frequencies = sorted(float(freq) for freq in pattern.swe)
-            if self.freq_selected.isChecked():
-                selected = self.data_model.get_view_param('selected_frequencies') or []
-                frequencies = [
-                    min(available_frequencies, key=lambda value: abs(value - float(freq)))
-                    for freq in selected
-                ]
-                frequencies = sorted(set(frequencies))
-                if not frequencies:
-                    frequencies = [available_frequencies[0]]
+            # Match the frequency selected in the View panel when one of the
+            # expanded frequencies is selected; otherwise take the only/first.
+            available = np.asarray(list(pattern.swe.keys()), dtype=float)
+            selected = self.data_model.get_view_param('selected_frequencies')
+            if selected:
+                freq_key = list(pattern.swe.keys())[
+                    int(np.argmin(np.abs(available - float(selected[0]))))]
             else:
-                frequencies = available_frequencies
-
-            swe = self._combine_swe_frequencies(pattern.swe, frequencies)
+                freq_key = list(pattern.swe.keys())[0]
+            swe = pattern.swe[freq_key]
             write_ticra_sph(swe, file_path)
 
     @staticmethod

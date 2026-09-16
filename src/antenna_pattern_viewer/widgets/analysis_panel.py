@@ -415,6 +415,9 @@ class AnalysisPanel(QWidget):
     def connect_signals(self):
         """Connect to data model signals."""
         self.data_model.pattern_loaded.connect(self.on_pattern_loaded)
+        # Follow processing too: SWE and near-field should be computed on the
+        # pattern the user is looking at, not the one last read from file.
+        self.data_model.pattern_modified.connect(self.on_pattern_loaded)
 
     def on_pattern_loaded(self, pattern):
         """Handle pattern loaded event."""
@@ -494,13 +497,19 @@ class AnalysisPanel(QWidget):
             self.calculate_swe_btn.setText("Calculating...")
 
             # Create and configure worker thread
-            self.swe_worker = SWEWorker(self.current_pattern, frequencies,
-                                        r=radius, nmax=nmax, mmax=mmax)
+            # Hand the worker its own copy: processing can replace the model's
+            # pattern while the calculation is running.
+            self.swe_worker = SWEWorker(self.current_pattern.copy(), frequency,
+                                        nmax=nmax, mmax=mmax)
 
             # Connect signals
             self.swe_worker.finished.connect(self.on_swe_finished)
             self.swe_worker.error.connect(self.on_swe_error)
             self.swe_worker.progress.connect(self.on_swe_progress)
+
+            # Release the QThread once it is done, so quitting the app does
+            # not report "QThread: Destroyed while thread is still running".
+            self.swe_worker.finished.connect(self.swe_worker.deleteLater)
 
             # Start the calculation in background
             self.swe_worker.start()
@@ -549,8 +558,11 @@ class AnalysisPanel(QWidget):
             # Get the SWE object from the pattern
             pattern = self.current_pattern
 
-            # Get the SWE object for the first (or selected) frequency
-            freq = list(pattern.swe.keys())[0]
+            # Use the frequency the combo selects, not an arbitrary dict key
+            freq = self.resolve_swe_frequency(pattern)
+            if freq is None:
+                self.nf_results.setText("No spherical wave expansion available.")
+                return
             swe = pattern.swe[freq]
 
             if surface_type == "spherical":
@@ -586,7 +598,8 @@ class AnalysisPanel(QWidget):
                     'theta': theta_deg,
                     'phi': phi_deg,
                     'radius': params['radius'],
-                    'is_spherical': True
+                    'is_spherical': True,
+                    'frequency': freq
                 }
 
             else:  # planar
@@ -621,7 +634,8 @@ class AnalysisPanel(QWidget):
                     'x_extent': params['x_extent'],
                     'y_extent': params['y_extent'],
                     'z_distance': params['z_distance'],
-                    'is_spherical': False
+                    'is_spherical': False,
+                    'frequency': freq
                 }
 
             # Store data
@@ -730,6 +744,8 @@ class AnalysisPanel(QWidget):
         """Display near field calculation results."""
         surface_type = "spherical" if nf_data.get('is_spherical', True) else "planar"
         result_text = f"Near Field Calculated ({surface_type}):\n"
+        if nf_data.get('frequency'):
+            result_text += f"Frequency: {nf_data['frequency'] / 1e9:.3f} GHz\n"
 
         if surface_type == "spherical":
             result_text += f"Radius: {nf_data['radius']:.4f} m\n"
@@ -976,18 +992,21 @@ class AnalysisPanel(QWidget):
             logger.error("Cross-pol CSV export failed: %s", e)
 
     # Getter methods
-    def _set_all_swe_frequencies(self, state):
-        """Set the checked state of every SWE frequency."""
-        for index in range(self.swe_freq_list.count()):
-            self.swe_freq_list.item(index).setCheckState(state)
+    def resolve_swe_frequency(self, pattern):
+        """
+        The SWE frequency to use, honouring the frequency combo.
 
-    def get_swe_frequencies(self):
-        """Get all frequencies checked for SWE calculation."""
-        return [
-            float(self.swe_freq_list.item(index).data(Qt.ItemDataRole.UserRole))
-            for index in range(self.swe_freq_list.count())
-            if self.swe_freq_list.item(index).checkState() == Qt.CheckState.Checked
-        ]
+        Near-field evaluation and SPH export used to take an arbitrary first
+        dictionary key, so selecting a frequency had no effect on either.
+        """
+        if not getattr(pattern, 'swe', None):
+            return None
+        available = list(pattern.swe.keys())
+        wanted = self.get_swe_frequency()
+        if wanted is None:
+            return available[0]
+        import numpy as np
+        return available[int(np.argmin(np.abs(np.asarray(available, float) - float(wanted))))]
 
     def get_swe_frequency(self):
         """Get the first selected frequency for backwards compatibility."""

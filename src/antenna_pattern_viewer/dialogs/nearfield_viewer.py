@@ -68,62 +68,6 @@ class NearFieldViewer(QDialog):
         
         self.setLayout(layout)
     
-    def get_available_components(self):
-        """Get list of available field components from data."""
-        components = []
-        
-        # Check for different possible field component names
-        possible_fields = [
-            ('E_theta', 'E-theta'),
-            ('E_phi', 'E-phi'),
-            ('e_theta', 'E-theta'),
-            ('e_phi', 'E-phi'),
-            ('E_co', 'Co-pol'),
-            ('E_cx', 'Cross-pol'),
-            ('e_co', 'Co-pol'),
-            ('e_cx', 'Cross-pol')
-        ]
-        
-        for field_key, display_name in possible_fields:
-            if field_key in self.nf_data:
-                components.append(display_name)
-        
-        # If no components found, just list what's in the data
-        if not components:
-            for key in self.nf_data.keys():
-                if key not in ['x', 'y', 'theta', 'phi', 'radius', 'is_spherical',
-                               'x_extent', 'y_extent', 'z_distance']:
-                    components.append(key)
-        
-        return components if components else ['E_theta']
-    
-    def get_field_data_key(self, display_name):
-        """Map display name to actual data key."""
-        name_map = {
-            'E-theta': ['E_theta', 'e_theta'],
-            'E-phi': ['E_phi', 'e_phi'],
-            'Co-pol': ['E_co', 'e_co'],
-            'Cross-pol': ['E_cx', 'e_cx']
-        }
-        
-        # Try mapped names first
-        if display_name in name_map:
-            for key in name_map[display_name]:
-                if key in self.nf_data:
-                    return key
-        
-        # Try direct match
-        if display_name in self.nf_data:
-            return display_name
-        
-        # Return first available field
-        for key in self.nf_data.keys():
-            if key not in ['x', 'y', 'theta', 'phi', 'radius', 'is_spherical',
-                           'x_extent', 'y_extent', 'z_distance']:
-                return key
-        
-        return None
-    
     def plot_nearfield(self):
         """Plot the near field data."""
         self.figure.clear()

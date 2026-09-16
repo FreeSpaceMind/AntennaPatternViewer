@@ -6,6 +6,54 @@ import matplotlib.pyplot as plt
 from typing import Optional, Union, List, Tuple, Literal, Any, Dict
 
 from farfield_spherical import FarFieldSpherical, find_nearest
+import logging
+
+logger = logging.getLogger(__name__)
+
+def _component_values(pattern, component, value_type, frequency_indices, unwrap_phase=True):
+    """
+    dB gain, phase in degrees, or axial ratio for the selected frequencies only.
+
+    Returns an array shaped like the full (frequency, theta, phi) cube so that
+    callers can keep indexing it with the pattern's own frequency indices, but
+    only the selected frequency slabs are computed; the rest are NaN. The
+    pattern accessors convert the whole cube (and unwrap phase over all of it)
+    before the caller indexes down to one or two cuts, which dominates redraw
+    time on a multi-frequency pattern.
+    """
+    from farfield_spherical.pattern_operations import unwrap_phase as _unwrap
+    from farfield_spherical.polarization import polarization_tp2rl
+
+    freq_idx = np.unique(np.asarray(frequency_indices, dtype=int))
+    shape = pattern.data.e_theta.shape
+    out = np.full(shape, np.nan, dtype=float)
+
+    if value_type == 'axial_ratio':
+        if pattern.polarization in ('rhcp', 'lhcp'):
+            right = pattern.data.e_co.values if pattern.polarization == 'rhcp' else pattern.data.e_cx.values
+            left = pattern.data.e_cx.values if pattern.polarization == 'rhcp' else pattern.data.e_co.values
+            right, left = right[freq_idx], left[freq_idx]
+        else:
+            right, left = polarization_tp2rl(pattern.phi_angles,
+                                             pattern.data.e_theta.values[freq_idx],
+                                             pattern.data.e_phi.values[freq_idx])
+        min_val = 1e-15
+        r_mag = np.maximum(np.abs(right), min_val)
+        l_mag = np.maximum(np.abs(left), min_val)
+        out[freq_idx] = 20 * np.log10((r_mag + l_mag) / np.maximum(np.abs(r_mag - l_mag), min_val))
+        return out
+
+    field = pattern.data[component].values[freq_idx]
+    if value_type == 'phase':
+        phase = np.angle(field)
+        if unwrap_phase:
+            phase = _unwrap(phase, axis=1)
+        out[freq_idx] = np.degrees(phase)
+    else:
+        with np.errstate(divide='ignore'):
+            out[freq_idx] = 20 * np.log10(np.abs(field))
+    return out
+
 
 def plot_pattern_cut(
     pattern: FarFieldSpherical,
@@ -111,21 +159,22 @@ def plot_pattern_cut(
         main_component = 'e_co'
         cross_component = 'e_cx'
 
-    # Special case for axial ratio - no cross-pol plotting
+    # Convert only the selected frequencies (see _component_values)
     if value_type == 'axial_ratio':
         show_cross_pol = False
-        data_co = pattern.get_axial_ratio()
+        data_co = _component_values(pattern, main_component, 'axial_ratio', frequency_indices)
         data_cx = None
         y_label = 'Axial Ratio (dB)'
         plot_prefix = 'AR'
     elif value_type == 'phase':
-        data_co = pattern.get_phase(main_component, unwrapped=unwrap_phase)
-        data_cx = pattern.get_phase(cross_component, unwrapped=unwrap_phase) if show_cross_pol else None
+        data_co = _component_values(pattern, main_component, 'phase', frequency_indices, unwrap_phase)
+        data_cx = (_component_values(pattern, cross_component, 'phase', frequency_indices, unwrap_phase)
+                   if show_cross_pol else None)
         y_label = 'Phase (degrees)'
         plot_prefix = 'Phase'
     else:  # Default to gain
-        data_co = pattern.get_gain_db(main_component)
-        data_cx = pattern.get_gain_db(cross_component) if show_cross_pol else None
+        data_co = _component_values(pattern, main_component, 'gain', frequency_indices)
+        data_cx = _component_values(pattern, cross_component, 'gain', frequency_indices) if show_cross_pol else None
         y_label = 'Gain (dBi)'
         plot_prefix = 'Gain'
 
@@ -386,13 +435,13 @@ def plot_multiple_patterns(
         
         # Get data for co-pol
         if value_type == 'gain':
-            co_pol_data = pattern.get_gain_db('e_co')[freq_idx]
+            co_pol_data = _component_values(pattern, 'e_co', 'gain', [freq_idx])[freq_idx]
             if show_cross_pol:
-                cx_pol_data = pattern.get_gain_db('e_cx')[freq_idx]
+                cx_pol_data = _component_values(pattern, 'e_cx', 'gain', [freq_idx])[freq_idx]
         elif value_type == 'phase':
-            co_pol_data = pattern.get_phase('e_co', unwrapped=unwrap_phase)[freq_idx]
+            co_pol_data = _component_values(pattern, 'e_co', 'phase', [freq_idx], unwrap_phase)[freq_idx]
             if show_cross_pol:
-                cx_pol_data = pattern.get_phase('e_cx', unwrapped=unwrap_phase)[freq_idx]
+                cx_pol_data = _component_values(pattern, 'e_cx', 'phase', [freq_idx], unwrap_phase)[freq_idx]
 
             # Apply phase normalization if requested
             if normalize_phase is not False:
@@ -416,7 +465,7 @@ def plot_multiple_patterns(
                     cx_pol_data = cx_pol_data - ref_phase_cx
 
         elif value_type == 'axial_ratio':
-            co_pol_data = pattern.get_axial_ratio()[freq_idx]
+            co_pol_data = _component_values(pattern, 'e_co', 'axial_ratio', [freq_idx])[freq_idx]
             show_cross_pol = False  # No cross-pol for axial ratio
         else:
             raise ValueError(f"Invalid value_type: {value_type}")
@@ -623,27 +672,21 @@ def plot_pattern_difference(
     
     # Get theta angles for x-axis
     theta_angles = pattern1.theta_angles
-    
+
+    # Convert the selected frequency of each pattern once, not once per cut
+    component = 'e_cx' if value_type.startswith('cx_') else 'e_co'
+    kind = ('axial_ratio' if value_type == 'axial_ratio'
+            else 'phase' if value_type.endswith('phase') else 'gain')
+    values1 = _component_values(pattern1, component, kind, [freq1_idx], unwrap_phase)[freq1_idx]
+    values2 = _component_values(pattern2, component, kind, [freq2_idx], unwrap_phase)[freq2_idx]
+
     # Plot for each phi angle
     for i, (phi1_idx, phi2_idx) in enumerate(zip(phi1_indices, phi2_indices)):
         phi_val = selected_phi[i]
         
         # Get data for this phi angle
-        if value_type == 'co_gain':
-            data1 = pattern1.get_gain_db('e_co')[freq1_idx, :, phi1_idx]
-            data2 = pattern2.get_gain_db('e_co')[freq2_idx, :, phi2_idx]
-        elif value_type == 'cx_gain':
-            data1 = pattern1.get_gain_db('e_cx')[freq1_idx, :, phi1_idx]
-            data2 = pattern2.get_gain_db('e_cx')[freq2_idx, :, phi2_idx]
-        elif value_type == 'axial_ratio':
-            data1 = pattern1.get_axial_ratio()[freq1_idx, :, phi1_idx]
-            data2 = pattern2.get_axial_ratio()[freq2_idx, :, phi2_idx]
-        elif value_type == 'co_phase':
-            data1 = pattern1.get_phase('e_co', unwrapped=unwrap_phase)[freq1_idx, :, phi1_idx]
-            data2 = pattern2.get_phase('e_co', unwrapped=unwrap_phase)[freq2_idx, :, phi2_idx]
-        elif value_type == 'cx_phase':
-            data1 = pattern1.get_phase('e_cx', unwrapped=unwrap_phase)[freq1_idx, :, phi1_idx]
-            data2 = pattern2.get_phase('e_cx', unwrapped=unwrap_phase)[freq2_idx, :, phi2_idx]
+        data1 = values1[:, phi1_idx]
+        data2 = values2[:, phi2_idx]
         
         # Calculate difference
         if absolute_diff:
@@ -764,20 +807,26 @@ def plot_pattern_statistics(
             nearest_freq, freq_idx = find_nearest(pattern.frequencies, frequency)
             selected_frequency = nearest_freq
         
-        # Get all phi angles
-        phi_angles = pattern.phi_angles
-        
-        # Extract data based on value_type
-        if value_type == 'gain':
-            # Shape: [theta, phi]
-            data = pattern.get_gain_db(component)[freq_idx]
-        elif value_type == 'phase':
-            data = pattern.get_phase(component, unwrapped=True)[freq_idx]
-        elif value_type == 'axial_ratio':
-            data = pattern.get_axial_ratio()[freq_idx]
+        # Honour a phi selection. Statistics used to be computed over every cut
+        # in the pattern regardless of what the user had selected, so choosing
+        # 3 of 72 cuts still gave statistics over all 72.
+        all_phi = pattern.phi_angles
+        if phi is None:
+            phi_indices = np.arange(len(all_phi))
         else:
+            wanted = np.atleast_1d(np.asarray(phi, dtype=float))
+            phi_indices = np.unique([int(np.argmin(np.abs(all_phi - value)))
+                                     for value in wanted])
+        phi_angles = all_phi[phi_indices]
+
+        # Extract data based on value_type
+        if value_type not in ('gain', 'phase', 'axial_ratio'):
             raise ValueError(f"Invalid value_type: {value_type}")
-            
+        # Shape: [theta, phi]; only the selected frequency is converted
+        data = _component_values(pattern, component, value_type, [freq_idx])[freq_idx]
+
+        data = np.asarray(data)[:, phi_indices]
+
         dimension_label = f"φ angles ({len(phi_angles)})"
         dimension_values = phi_angles
         
@@ -820,15 +869,29 @@ def plot_pattern_statistics(
     # When statistic_over='frequency', dimension represents different frequencies
     all_data = data.T if statistic_over == 'phi' else data
     
-    # Calculate statistics across the dimension (phi or frequency)
-    mean_data = np.mean(all_data, axis=0)
+    # Calculate statistics across the dimension (phi or frequency).
+    #
+    # Mean and RMS are computed on linear power and converted back, because
+    # averaging decibels gives the geometric mean of power: one null in one cut
+    # (which is -300 dB, not a small number) drags the "mean pattern" down by
+    # tens of dB and the result describes no physical quantity. Median, min,
+    # max and the percentiles are order statistics, so they are the same in
+    # either domain and are taken directly. The standard deviation stays in dB,
+    # where "spread in dB" is what it is normally read as.
+    if value_type == 'gain':
+        linear_power = 10.0 ** (np.asarray(all_data, dtype=float) / 10.0)
+        with np.errstate(divide='ignore'):
+            mean_data = 10.0 * np.log10(np.mean(linear_power, axis=0))
+            rms_data = 10.0 * np.log10(np.sqrt(np.mean(linear_power ** 2, axis=0)))
+    else:
+        # Phase and axial ratio are not powers; average them as given.
+        mean_data = np.mean(all_data, axis=0)
+        rms_data = np.sqrt(np.mean(all_data ** 2, axis=0))
+
     median_data = np.median(all_data, axis=0)
     std_data = np.std(all_data, axis=0)
     min_data = np.min(all_data, axis=0)
     max_data = np.max(all_data, axis=0)
-    
-    # For RMS, we need to square values, mean, then sqrt
-    rms_data = np.sqrt(np.mean(all_data**2, axis=0))
 
     
     # Calculate percentiles if needed
@@ -1309,43 +1372,21 @@ def plot_pattern_2d_polar(
         warnings.warn("Pattern has non-uniform theta. Auto-converting to uniform grid for 2D polar plot.")
         plot_pattern = plot_pattern.to_uniform_theta()
     
-    # Detect coordinate format and convert to sided for 2D polar plot
+    # Bring the pattern to sided format (theta >= 0, phi 0..360) with the
+    # library transform, which pairs cuts by phi value, folds cuts outside the
+    # expected range and merges duplicates. The heuristic this replaces
+    # classified the format from theta_min and phi_max alone, so a central
+    # pattern with only a few cuts (phi_max = 90, say) matched neither case
+    # and was drawn with its negative theta values used directly as radii.
+    from farfield_spherical import detect_coordinate_format
+
+    source_format = detect_coordinate_format(plot_pattern)
+    plot_pattern.transform_coordinates('sided')
     theta_angles = plot_pattern.theta_angles
     phi_angles = plot_pattern.phi_angles
-
-    theta_min, theta_max = np.min(theta_angles), np.max(theta_angles)
-    phi_min, phi_max = np.min(phi_angles), np.max(phi_angles)
-
-    # Detect coordinate format using robust heuristics:
-    # - Central format: theta spans negative to positive (e.g., -90 to 90), phi 0-180
-    # - Sided format: theta 0-180, phi 0-360
-    has_negative_theta = theta_min < -0.5  # Allow small tolerance
-    phi_covers_full_azimuth = phi_max > 300  # Phi spans most of 0-360
-    phi_is_half_azimuth = phi_max < 200 and phi_max > 150  # Phi spans ~0-180
-
-    # Pattern is in sided format if theta is non-negative and phi covers full azimuth
-    is_sided = (theta_min >= -0.5 and phi_covers_full_azimuth)
-
-    # Pattern is in central format if theta has negative values and phi is half-azimuth
-    is_central = (has_negative_theta and phi_is_half_azimuth)
-
-    print(f"Pattern coordinate format detected:")
-    print(f"  Theta range: {theta_min:.1f}° to {theta_max:.1f}°")
-    print(f"  Phi range: {phi_min:.1f}° to {phi_max:.1f}°")
-    print(f"  Format: {'sided' if is_sided else 'central' if is_central else 'unknown'}")
-
-    # For central format patterns, remap to sided coordinates
-    # Central: theta from -max to +max, phi from 0 to ~180
-    # Sided: theta from 0 to max, phi from 0 to 360
-    # Mapping: sided(theta, phi) = central(theta, phi) for phi < 180
-    #          sided(theta, phi) = central(-theta, phi-180) for phi >= 180
-    central_format_remapped = False
-    if is_central and not is_sided:
-        print("  Remapping central format to sided coordinates")
-        central_format_remapped = True
-        # Store original coordinates for remapping
-        original_theta = theta_angles.copy()
-        original_phi = phi_angles.copy()
+    logger.debug("2D polar: %s input -> sided grid theta %.1f..%.1f, phi %.1f..%.1f (%d cuts)",
+                 source_format, theta_angles.min(), theta_angles.max(),
+                 phi_angles.min(), phi_angles.max(), len(phi_angles))
 
     # Handle frequency selection
     frequencies = plot_pattern.frequencies
@@ -1386,77 +1427,6 @@ def plot_pattern_2d_polar(
         boresight_idx = np.argmin(np.abs(theta_angles))
         ref_phase = plot_data[boresight_idx, 0]  # Boresight theta, first phi
         plot_data = plot_data - ref_phase
-
-    # For central format, remap to sided coordinates
-    # The key mapping: sided(theta, phi) uses central(+theta, phi) for phi<180
-    #                  and central(-theta, phi-180) for phi>=180
-    if central_format_remapped:
-        n_data_theta, n_data_phi = plot_data.shape
-
-        # Verify dimensions match
-        if len(original_theta) != n_data_theta or len(original_phi) != n_data_phi:
-            print(f"  Warning: Dimension mismatch")
-            print(f"  Skipping remapping, using original coordinates")
-            central_format_remapped = False
-        else:
-            # Find theta=0 index in the original theta array
-            theta0_idx = np.argmin(np.abs(original_theta))
-
-            # New theta: only non-negative values [0, 1, 2, ..., max]
-            new_theta = original_theta[theta0_idx:]
-            n_new_theta = len(new_theta)
-
-            # New phi: [0, 1, ..., 179, 180, 181, ..., 359]
-            new_phi = np.concatenate([original_phi, original_phi + 180])
-            n_new_phi = len(new_phi)
-
-            # Build new data array
-            new_data = np.zeros((n_new_theta, n_new_phi))
-
-            # First half of phi (0 to ~179): data from positive theta
-            # new_data[i, :n_data_phi] = plot_data[theta0_idx + i, :]
-            new_data[:, :n_data_phi] = plot_data[theta0_idx:, :]
-
-            # Second half of phi (180 to ~359): data from negative theta
-            # For new_theta[i], we need central theta = -new_theta[i]
-            #
-            # IMPORTANT: Don't assume theta0_idx - i gives the correct negative theta!
-            # If theta=0 is not exactly in the array (e.g., 250 points from -15 to +15),
-            # the simple subtraction causes a 1-index offset. Instead, we explicitly
-            # find the negative theta that matches the magnitude of the positive theta.
-            #
-            # Physical interpretation: central(-theta, phi) represents the point
-            # that would be at (|theta|, phi+180) in sided format.
-            print(f"  theta0_idx={theta0_idx}, theta at idx={original_theta[theta0_idx]:.4f}°")
-
-            for i in range(n_new_theta):
-                # Get the positive theta value for this row
-                pos_theta_val = original_theta[theta0_idx + i]
-                # Find the index with matching negative theta magnitude
-                target_neg_theta = -abs(pos_theta_val)
-                neg_theta_idx = np.argmin(np.abs(original_theta - target_neg_theta))
-
-                if neg_theta_idx >= 0 and neg_theta_idx < n_data_theta:
-                    new_data[i, n_data_phi:] = plot_data[neg_theta_idx, :]
-                else:
-                    new_data[i, n_data_phi:] = plot_data[0, :]
-
-            # Debug: verify the magnitude matching
-            print(f"  Theta magnitude matching check:")
-            for i in [0, 1, 5, 10]:
-                if i < n_new_theta and theta0_idx + i < n_data_theta:
-                    pos_theta = original_theta[theta0_idx + i]
-                    target_neg = -abs(pos_theta)
-                    neg_idx = np.argmin(np.abs(original_theta - target_neg))
-                    actual_neg = original_theta[neg_idx]
-                    print(f"    row {i}: pos_theta={pos_theta:+.3f}°, matched neg_theta={actual_neg:+.3f}° (diff={abs(pos_theta)-abs(actual_neg):.4f}°)")
-
-            # Update variables for subsequent plotting code
-            theta_angles = new_theta
-            phi_angles = new_phi
-            plot_data = new_data
-            print(f"  Remapped - Theta: {np.min(theta_angles):.1f}° to {np.max(theta_angles):.1f}°")
-            print(f"  Remapped - Phi: {np.min(phi_angles):.1f}° to {np.max(phi_angles):.1f}°")
 
     # Ensure phi_angles are sorted and data columns match the sorted order
     phi_sort_idx = np.argsort(phi_angles)
