@@ -230,7 +230,11 @@ class ViewPanel(QWidget):
         previous_freqs = self.get_selected_frequencies()
         previous_phi = self.get_selected_phi_angles()
 
-        self.on_pattern_loaded(pattern)
+        # Repopulate without announcing it: on_pattern_loaded resets the lists
+        # to their first row, and anything listening would replot that single
+        # cut before the previous selection is restored below. The restore
+        # itself is silent, so the one emit at the end is what redraws.
+        self.on_pattern_loaded(pattern, _announce=False)
 
         self._reselect_nearest(self.frequency_list, pattern.frequencies, previous_freqs)
         try:
@@ -239,6 +243,8 @@ class ViewPanel(QWidget):
             phi_angles = None
         if phi_angles is not None:
             self._reselect_nearest(self.phi_list, phi_angles, previous_phi)
+
+        self.parameters_changed.emit()
 
     @staticmethod
     def _reselect_nearest(list_widget, available, previous_values):
@@ -260,8 +266,13 @@ class ViewPanel(QWidget):
         finally:
             list_widget.blockSignals(False)
 
-    def on_pattern_loaded(self, pattern):
-        """Handle pattern loaded event."""
+    def on_pattern_loaded(self, pattern, _announce=True):
+        """
+        Handle pattern loaded event.
+
+        ``_announce`` is False when the caller will restore a selection and
+        emit ``parameters_changed`` itself; see ``on_pattern_modified``.
+        """
         if pattern is None:
             self.current_pattern = None
             self.frequency_list.clear()
@@ -289,7 +300,8 @@ class ViewPanel(QWidget):
         # Re-enable signals and emit change
         self.frequency_list.blockSignals(False)
         self.phi_list.blockSignals(False)
-        self.parameters_changed.emit()
+        if _announce:
+            self.parameters_changed.emit()
 
     def get_current_parameters(self):
         """Get current view parameters as a dictionary."""

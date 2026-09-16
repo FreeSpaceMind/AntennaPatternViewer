@@ -196,7 +196,7 @@ class PlotWidget(QWidget):
                     show_cross_pol, unwrap_phase, plot_format, component,
                     statistics_enabled=False, show_range=True,
                     statistic_type='mean', percentile_range=(25, 75),
-                    preserve_limits=True
+                    preserve_limits=True, pattern_key=None
     ):
         """
         Update the plot with new data and parameters.
@@ -241,7 +241,15 @@ class PlotWidget(QWidget):
         # Axis limits describe the pattern they were taken from. Keeping them
         # across a different pattern leaves a narrow-beam pattern drawn on a
         # +/-180 degree axis, so they are dropped when the pattern changes.
-        pattern_key = id(pattern) if pattern is not None else None
+        #
+        # The key must identify the loaded pattern, not the object handed in:
+        # every processing step builds a new FarFieldSpherical, so keying on
+        # id(pattern) dropped the limits whenever MARS or any other step was
+        # toggled, rescaling the axes mid-comparison. Callers that know which
+        # instance is displayed pass its id; the fallback keeps the old
+        # behaviour for callers that do not.
+        if pattern_key is None:
+            pattern_key = id(pattern) if pattern is not None else None
         if pattern_key != getattr(self, '_limits_pattern_key', None):
             self.clear_saved_limits()
             self._limits_pattern_key = pattern_key

@@ -22,6 +22,25 @@ class Plot2DWidget(QWidget):
         self.setup_ui()
         self.connect_signals()
     
+    def _active_pattern_key(self):
+        """
+        A stable identity for the pattern on screen.
+
+        Processing replaces the model's pattern object on every step, so the
+        saved axis limits must be keyed to the loaded instance instead; see
+        PlotWidget.update_plot.
+        """
+        try:
+            instance = self.data_model.get_active_instance()
+            if instance is not None:
+                return instance.instance_id
+            # No instance registered (a pattern set directly). The unprocessed
+            # source object is still stable across processing steps.
+            original = getattr(self.data_model, 'original_pattern', None)
+            return id(original) if original is not None else None
+        except Exception:
+            return None
+
     def setup_ui(self):
         """Setup 2D plot UI."""
         layout = QVBoxLayout(self)
@@ -118,7 +137,8 @@ class Plot2DWidget(QWidget):
                     statistics_enabled=statistics_enabled,
                     show_range=show_range,
                     statistic_type=statistic_type,
-                    percentile_range=percentile_range
+                    percentile_range=percentile_range,
+                    pattern_key=self._active_pattern_key()
                 )
                 self.plot_updated.emit()
             except Exception as e:
