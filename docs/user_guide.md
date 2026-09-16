@@ -483,17 +483,21 @@ The **Find** button uses `scipy.optimize.basinhopping` to minimize the phase var
 | **Apply** checkbox | Enables/disables MARS processing |
 | **Max Extent** spinbox | Maximum radial extent of the antenna under test, in meters. Range: 0.001--10.0 m. Precision: 0.001 m. Default: 0.5 m |
 
-MARS suppresses room reflections and scattering artifacts in measured antenna patterns by filtering in the spherical wave domain. The algorithm:
+MARS suppresses room reflections and scattering artifacts in measured antenna patterns by filtering each great-circle phi cut in the cylindrical mode domain (far-field MARS). The algorithm:
 
 1. For each frequency, compute the wavenumber $k = 2\pi f / c$.
 2. Determine the maximum mode order: $n_\text{max} = \lfloor k \cdot a \rfloor$, where $a$ is the maximum radial extent.
-3. Decompose each phi cut into Fourier modes.
+3. Decompose each phi cut (a closed circle in theta, central format) into Fourier modes.
 4. Retain only modes with index $|n| \leq n_\text{max}$; zero out higher-order modes.
 5. Reconstruct the filtered pattern.
 
-The physical rationale is that a source of maximum extent $a$ can only radiate spherical modes up to order $n \approx ka$. Modes beyond this order are due to measurement artifacts (reflections, diffraction from the test range).
+The physical rationale is that a source of maximum extent $a$ can only radiate modes up to order $n \approx ka$. Modes beyond this order are due to measurement artifacts (reflections, diffraction from the test range).
 
-> **Guideline:** Set **Max Extent** to the physical radius of the antenna under test (including any feed structure or support). Too small a value over-smooths the pattern; too large a value retains artifacts.
+A pattern whose theta cuts do not span a full circle (a sector from a far-field or compact range, or a sided hemisphere) is zero-padded to a full circle before filtering, which is the sector processing of far-field MARS. Expect ringing near the sector edges; the library logs a warning naming them.
+
+> **Guideline:** Set **Max Extent** to the physical radius of the antenna under test (including any feed structure or support), measured from the origin the pattern is referred to. Apply the phase center translation first so that the antenna is centred; the pipeline runs Phase Center before MARS for this reason. Too small a value over-smooths the pattern; too large a value retains artifacts.
+
+The viewer applies a brick-wall mode filter. The library's `apply_mars` also takes a `taper` argument (a raised-cosine roll-off over a number of orders above $n_\text{max}$) that reduces ringing; it is not yet exposed in the viewer. See the FarFieldSpherical pattern operations documentation for details.
 
 ---
 
