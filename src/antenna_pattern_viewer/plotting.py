@@ -55,6 +55,15 @@ def _component_values(pattern, component, value_type, frequency_indices, unwrap_
     return out
 
 
+def _line_colors(colors, count):
+    """``count`` line colours: the caller's sequence cycled, or the tab10 default."""
+    count = max(int(count), 1)
+    if colors:
+        colors = list(colors)
+        return [colors[i % len(colors)] for i in range(count)]
+    return list(plt.cm.tab10(np.linspace(0, 1, count)))
+
+
 def plot_pattern_cut(
     pattern: FarFieldSpherical,
     frequency: Optional[float] = None,
@@ -66,10 +75,15 @@ def plot_pattern_cut(
     component: str = 'e_co',
     ax: Optional[plt.Axes] = None,
     fig_size: Tuple[float, float] = (10, 6),
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    colors: Optional[List[Any]] = None
 ) -> plt.Figure:
     """
     Plot antenna pattern cuts with selectable value type.
+
+    ``colors`` optionally supplies the sequence of line colours (one per
+    frequency when there are many lines, otherwise one per phi cut); it is
+    cycled if shorter than needed. The default is matplotlib's tab10.
     
     Args:
         pattern: FarFieldSpherical object
@@ -213,7 +227,7 @@ def plot_pattern_cut(
     # If more than 8 lines, use a color per (frequency, polarization) group
     if num_lines > 8:
         # Use color cycle for frequencies
-        color_cycle = plt.cm.tab10(np.linspace(0, 1, len(frequency_indices)))
+        color_cycle = _line_colors(colors, len(frequency_indices))
 
         # Plot with frequency-grouped colors
         for i, freq_idx in enumerate(frequency_indices):
@@ -255,7 +269,7 @@ def plot_pattern_cut(
                     )
     else:
         # Less than 8 lines, use a color per phi angle
-        color_cycle = plt.cm.tab10(np.linspace(0, 1, len(phi_indices)))
+        color_cycle = _line_colors(colors, len(phi_indices))
 
         # Plot with detailed labels
         for i, freq_idx in enumerate(frequency_indices):

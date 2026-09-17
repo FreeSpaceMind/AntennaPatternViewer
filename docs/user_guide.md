@@ -709,6 +709,27 @@ The primary visualization widget, powered by matplotlib. It renders either 1D Ca
 - Color represents the selected value (gain, phase, or axial ratio)
 - Colorbar indicates the value range
 
+**Plot strip:** the row under the canvas holds Grid, Legend, Normalize, Smooth (2D only), the axis limit fields, Reset Scale, Export Plot Data and Style…. Axis limits are remembered per loaded pattern and survive processing toggles, so a MARS on/off comparison keeps its scale.
+
+### Plot Style Dialog
+
+**Style…** on the plot strip opens a floating, non-modal dialog. It takes no room from the layout, can be moved beside the plot, and every edit applies live. There is one style per plot format (1D cut, 2D polar, near field); the dialog shows which one it is editing.
+
+| Tab | Controls |
+|-----|----------|
+| **Text** | Title, X label, Y label, colorbar label (each blank = the plotting default); font family; sizes for title, axis labels, tick labels and legend (Auto = default) |
+| **Axes & Grid** | Major tick step for X and Y (radial on the polar view); minor grid; grid line style and opacity; polar zero location and direction; dark background; figure and axes colours |
+| **Legend & Lines** | Legend location (including outside right), columns, frame; line width for every trace; colour cycle (tab10, Set1, viridis, …) |
+| **Series** | One row per trace on screen: legend label, colour (double-click to pick), width, style and visibility. Overrides are keyed by the trace's original label, so they persist across replots and processing changes |
+
+The header offers built-in presets (Default, Publication, Presentation, Dark); applying a preset keeps your per-trace edits. **Save…** and **Load…** exchange a style as JSON so a group can share a house style; **Reset** returns the current format to the plotting defaults. Styles are remembered between sessions.
+
+Legend and grid *visibility* stay on the plot strip; the dialog controls how they look.
+
+### Exporting a Figure
+
+The 2D dock's export opens a small dialog: file and format (PNG, PDF, SVG, JPEG, TIFF), width and height in inches, resolution in dpi, transparent background, and margin trimming. PDF and SVG are vector formats and are what a publication wants; the size in inches decides how large the fonts appear on the page. The figure is resized only for the write and the on-screen canvas is unchanged. The current plot style is applied, so what you see is what is exported.
+
 ### 3D Plot
 
 Reserved for future implementation. Currently displays a placeholder message.

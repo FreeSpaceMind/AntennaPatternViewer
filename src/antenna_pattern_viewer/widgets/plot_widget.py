@@ -18,6 +18,8 @@ from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 
 from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
+from ..plot_style import PlotStyle, apply_style, cycle_colors, series_labels
+from PyQt6.QtCore import QSettings
 
 import logging
 
@@ -26,6 +28,11 @@ logger = logging.getLogger(__name__)
 
 class PlotWidget(QWidget):
     """Widget containing matplotlib canvas and plot formatting controls."""
+
+    STYLE_FORMATS = ('1d_cut', '2d_polar', 'near_field')
+    STYLE_FORMAT_NAMES = {'1d_cut': '1D cut', '2d_polar': '2D polar', 'near_field': 'Near field'}
+    SETTINGS_ORG = 'AntennaPatternViewer'
+    SETTINGS_APP = 'PlotStyle'
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,6 +47,13 @@ class PlotWidget(QWidget):
         self.current_show_range = True
         self.current_statistic_type = 'mean'
         self.current_percentile_range = (25, 75)
+        # One style per plot format: a 1D cut and a 2D polar image want
+        # different labels and ticks. Loaded from settings, edited live by
+        # the Plot Style dialog, applied after every draw.
+        self.styles = {key: PlotStyle() for key in self.STYLE_FORMATS}
+        self.style_dialog = None
+        self._cycle_colors = None
+        self._load_styles()
         self.current_colorbar = None
 
         # Store current matplotlib axis limits to preserve across data changes
@@ -178,6 +192,14 @@ class PlotWidget(QWidget):
         self.export_curves_btn.clicked.connect(self.export_plotted_data)
         format_layout.addWidget(self.export_curves_btn)
 
+        # Everything about the plot's appearance lives in a floating dialog so
+        # the strip stays as it is.
+        self.style_btn = QPushButton("Style…")
+        self.style_btn.setToolTip("Titles, labels, fonts, legend, grid, ticks, line styles, "
+                                  "per-trace colours and presets")
+        self.style_btn.clicked.connect(self.open_style_dialog)
+        format_layout.addWidget(self.style_btn)
+
         format_layout.addStretch()
         
         # Add to main layout
@@ -234,6 +256,7 @@ class PlotWidget(QWidget):
         self.current_show_range = show_range
         self.current_statistic_type = statistic_type
         self.current_percentile_range = percentile_range
+        self.current_pattern_key = pattern_key
 
         # Update control labels and visibility based on plot format
         self.update_controls_for_plot_format(format_changing)
@@ -274,7 +297,8 @@ class PlotWidget(QWidget):
             self.ax = self.figure.add_subplot(111, projection='polar')
         else:
             self.ax = self.figure.add_subplot(111)
-        
+        self._apply_color_cycle(plot_format, frequencies, phi_angles, show_cross_pol)
+
         try:
             # Statistics plot
             if statistics_enabled:
@@ -340,6 +364,7 @@ class PlotWidget(QWidget):
                     ax=self.ax,
                     unwrap_phase=unwrap_phase,
                     normalize=self.normalize_check.isChecked(),
+                    colors=self._cycle_colors,
                 )
 
             # Restore saved axis limits to preserve scale across data changes
@@ -572,7 +597,8 @@ class PlotWidget(QWidget):
                 show_range=self.current_show_range,
                 statistic_type=self.current_statistic_type,
                 percentile_range=self.current_percentile_range,
-                preserve_limits=preserve_limits
+                preserve_limits=preserve_limits,
+                pattern_key=getattr(self, 'current_pattern_key', None),
             )
     
     def save_plot(self, filename):
@@ -735,6 +761,88 @@ class PlotWidget(QWidget):
 
         logger.info("Exported %d trace(s) to %s", len(traces), file_path)
 
+    # ------------------------------------------------------------ style
+    def current_style(self) -> PlotStyle:
+        """The style for the plot format on screen."""
+        key = self.current_plot_format if self.current_plot_format in self.styles else '1d_cut'
+        return self.styles[key]
+
+    def set_style(self, style: PlotStyle, plot_format=None):
+        """Replace the style for a plot format, re-apply it and remember it."""
+        key = plot_format or self.current_plot_format
+        if key not in self.styles:
+            key = '1d_cut'
+        self.styles[key] = style.copy()
+        self._save_styles()
+        if key != self.current_plot_format:
+            return
+        # Replot rather than restyle in place: a field set back to Auto must
+        # bring the plotting default back, and a colour cycle only takes
+        # effect when the lines are drawn. The limits are kept.
+        if self.current_pattern is not None:
+            self.replot_current_data(preserve_limits=True)
+        else:
+            self.update_plot_formatting()
+
+    def open_style_dialog(self):
+        """Show the floating Plot Style dialog for the current plot format."""
+        from ..dialogs.plot_style_dialog import PlotStyleDialog
+
+        if self.style_dialog is None:
+            self.style_dialog = PlotStyleDialog(self)
+            self.style_dialog.style_changed.connect(self._on_style_changed)
+        self.style_dialog.set_style(self.current_style(),
+                                    self.STYLE_FORMAT_NAMES.get(self.current_plot_format,
+                                                                self.current_plot_format))
+        ax = self.figure.axes[0] if self.figure.axes else None
+        self.style_dialog.set_series(series_labels(ax))
+        self.style_dialog.show()
+        self.style_dialog.raise_()
+        self.style_dialog.activateWindow()
+
+    def _on_style_changed(self, style):
+        self.set_style(style)
+
+    def _apply_color_cycle(self, plot_format, frequencies, phi_angles, show_cross_pol):
+        """
+        Choose the line colours before the plotting function draws.
+
+        The cut plotter takes an explicit colour list (one per frequency or
+        per phi cut); anything drawing from the axes' own cycle picks the
+        same colours up from set_prop_cycle.
+        """
+        style = self.styles.get(plot_format) or self.styles['1d_cut']
+        self._cycle_colors = None
+        if style.color_cycle in (None, '', 'default'):
+            return
+        n_freq = len(frequencies) if isinstance(frequencies, (list, tuple, np.ndarray)) else 1
+        n_phi = len(phi_angles) if isinstance(phi_angles, (list, tuple, np.ndarray)) else 1
+        colors = cycle_colors(style.color_cycle, max(n_freq, n_phi, 1))
+        if colors:
+            self._cycle_colors = colors
+            self.ax.set_prop_cycle(color=colors)
+
+    def _settings(self) -> QSettings:
+        return QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
+
+    def _load_styles(self):
+        try:
+            settings = self._settings()
+            for key in self.styles:
+                text = settings.value(f"style/{key}")
+                if text:
+                    self.styles[key] = PlotStyle.from_json(text)
+        except Exception as e:
+            logger.warning("Saved plot styles could not be read: %s", e)
+
+    def _save_styles(self):
+        try:
+            settings = self._settings()
+            for key, style in self.styles.items():
+                settings.setValue(f"style/{key}", style.to_json())
+        except Exception as e:
+            logger.warning("Plot styles could not be saved: %s", e)
+
     def clear_saved_limits(self):
         """Forget the remembered axis limits so the next plot auto-scales."""
         for key in self.current_matplotlib_limits:
@@ -788,4 +896,15 @@ class PlotWidget(QWidget):
             self._apply_axis_limit(ax.set_ylim, ax.get_ylim,
                                    self.y_theta_min_edit.text(), self.y_theta_max_edit.text())
         
+
+        # The user's style goes on last so it wins over the plotting defaults.
+        try:
+            apply_style(self.figure, ax, self.current_style(),
+                        colorbar=getattr(self, 'current_colorbar', None),
+                        legend_visible=self.legend_colorbar_check.isChecked())
+        except Exception as e:      # a bad colour name must not kill the redraw
+            logger.warning("Plot style could not be applied: %s", e)
+        if self.style_dialog is not None and self.style_dialog.isVisible():
+            self.style_dialog.set_series(series_labels(ax))
+
         self.canvas.draw()

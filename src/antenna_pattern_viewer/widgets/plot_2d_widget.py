@@ -182,19 +182,16 @@ class Plot2DWidget(QWidget):
             )
             return
         
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Plot",
-            "",
-            "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg);;All Files (*.*)"
-        )
-        
-        if file_path:
-            try:
-                self.plot_widget.figure.savefig(file_path, dpi=300, bbox_inches='tight')
-            except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Export Error",
-                    f"Failed to export plot:\n{str(e)}"
-                )
+        from ..dialogs.export_figure_dialog import ExportFigureDialog, save_figure
+
+        dialog = ExportFigureDialog(self.plot_widget.figure, self)
+        if dialog.exec() != ExportFigureDialog.DialogCode.Accepted:
+            return
+        options = dialog.options()
+        try:
+            save_figure(self.plot_widget.figure, options)
+            self.plot_widget.canvas.draw_idle()
+            logger.info("Exported figure to %s", options['path'])
+        except Exception as e:
+            logger.exception("Figure export failed")
+            QMessageBox.critical(self, "Export Error", f"Failed to export plot:\n{e}")
