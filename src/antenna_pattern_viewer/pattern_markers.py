@@ -27,11 +27,12 @@ class CutAnalysis:
     null_depth: Optional[float] = None    # deeper of the two first nulls, relative to the peak (dB, negative)
     sidelobe_theta: Optional[float] = None
     sidelobe_level: Optional[float] = None  # highest lobe outside the first nulls, relative to the peak (dB)
+    symmetric_assumed: bool = False       # sided cut with the peak at theta = 0: the missing half was mirrored
 
     def summary(self, unit='dBi') -> str:
         parts = [f"peak {self.peak_value:.2f} {unit} @ {self.peak_theta:.1f}°"]
         if self.hpbw is not None:
-            parts.append(f"HPBW {self.hpbw:.1f}°")
+            parts.append(f"HPBW {self.hpbw:.1f}°" + (" (sym.)" if self.symmetric_assumed else ""))
         if self.sidelobe_level is not None:
             parts.append(f"SLL {self.sidelobe_level:+.1f} dB @ {self.sidelobe_theta:.1f}°")
         if self.null_depth is not None:
@@ -95,6 +96,11 @@ def analyze_cut(theta, values, level_db=3.0) -> Optional[CutAnalysis]:
     level = values[peak] - level_db
     result.hp_left = _crossing(theta, values, level, peak, -1)
     result.hp_right = _crossing(theta, values, level, peak, +1)
+    # A sided cut (theta from 0) with its peak at theta = 0 only holds half
+    # the beam; the other half is taken as its mirror image.
+    if peak == 0 and abs(theta[0]) < 1e-9 and result.hp_left is None and result.hp_right is not None:
+        result.hp_left = -result.hp_right
+        result.symmetric_assumed = True
     if result.hp_left is not None and result.hp_right is not None:
         result.hpbw = result.hp_right - result.hp_left
 

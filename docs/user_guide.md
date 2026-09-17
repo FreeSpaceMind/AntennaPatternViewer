@@ -709,6 +709,17 @@ The primary visualization widget, powered by matplotlib. It renders either 1D Ca
 - Color represents the selected value (gain, phase, or axial ratio)
 - Colorbar indicates the value range
 
+**Formats.** The Format combo in the View panel selects the layout:
+
+| Format | What it shows |
+|--------|---------------|
+| **1D Cut** | The selected φ cuts against θ on one axes |
+| **2D Polar** | A colour map of the whole sphere, θ radial and φ angular, for one frequency |
+| **Polar Cut** | The selected cuts on a polar axes with θ as the angle and the value as the radius: the classic antenna polar chart. A sided pattern is closed into full great circles (θ from −180° to 180°) so each cut is a complete ring; boresight is at the top and positive θ runs clockwise. For gain the radial axis runs from the peak down 40 dB; the Radial limit fields on the strip override it |
+| **Amplitude + Phase** | Gain over phase for the same cuts in two stacked panels sharing θ. The Y-axis fields apply to the amplitude panel; markers and masks go on it too |
+| **Small Multiples** | One panel per selected frequency, each showing the selected φ cuts, with shared axes so panels compare directly. Markers, masks and cursors work per panel |
+| **Frequency Sweep** | A pattern metric against frequency, one trace per selected φ cut. The **Sweep metric** combo (shown only for this format) offers peak gain, boresight gain, half-power beamwidth, first sidelobe level, peak angle (squint), boresight cross-polar discrimination and first null depth. Metrics are read from each cut the way the markers read them |
+
 **Plot strip:** the row under the canvas holds Grid, Legend, Normalize, Smooth (2D only), the axis limit fields, Reset Scale, Export Plot Data and Style…. Axis limits are remembered per loaded pattern and survive processing toggles, so a MARS on/off comparison keeps its scale.
 
 ### Plot Style Dialog
@@ -734,6 +745,12 @@ Legend and grid *visibility* stay on the plot strip; the dialog controls how the
 
 **Cursors** on the plot strip (1D cuts) enables a data tip that follows the mouse and reports the trace, θ and value of the nearest sample. A left click pins cursor A; a second click pins cursor B and shows Δθ and Δvalue between them, both on the plot and in the readout under the strip. A third click starts a new pair; a right click clears. The two cursors may sit on different traces, which is how you read a co/cross ratio or the difference between two cuts at the same angle. Cursors are ignored while the toolbar's zoom or pan tool is active, and pinned cursors survive replots and processing changes.
 
+### Specification Masks
+
+**Masks…** on the plot strip (1D cut, Amplitude + Phase and Small Multiples) opens a floating dialog listing the specification masks. A mask is a piecewise-linear limit in θ and value: an *upper* mask shades the region a trace must stay below (a sidelobe envelope); a *lower* mask shades the region it must stay above (minimum gain over the coverage). Masks come from **Import CSV…** (two columns, θ in degrees and value, header optional, any of comma, semicolon, tab or space as separator) or from **Add points…**, which opens a small table of breakpoints. A mask can be mirrored about θ = 0 so only one side needs defining. Colour is picked by double-clicking the Colour cell; Visible toggles a mask without deleting it. **Save set…** and **Load set…** exchange the whole list as JSON.
+
+Every visible mask is drawn on each cut panel and appears in the legend. The readout under the strip reports, per mask, either the smallest margin to any plotted trace or the worst violation with the trace, the excess in dB and the angle. Values are read from the plotted traces, so normalization and processing are respected. Masks are not traces: the data export, the Series table, markers and cursors ignore them. Masks are saved with a session.
+
 ### Exporting a Figure
 
 The 2D dock's export opens a small dialog: file and format (PNG, PDF, SVG, JPEG, TIFF), width and height in inches, resolution in dpi, transparent background, and margin trimming. PDF and SVG are vector formats and are what a publication wants; the size in inches decides how large the fonts appear on the page. The figure is resized only for the write and the on-screen canvas is unchanged. The current plot style is applied, so what you see is what is exported.
@@ -753,6 +770,12 @@ Displays the results of a near-field calculation performed from the Analysis pan
 This tab is populated only after clicking **Calculate Near Field** in the Analysis panel with valid SWE data.
 
 ---
+
+## Session Files
+
+**File ▸ Save Session…** (Ctrl+Shift+S) writes a `.apvsession` JSON file holding the loaded files with the options they were read with (CUT frequency range, ATAMS interpolation), each instance's processing state, view settings and comparison membership, the active instance, the plot styles for every format, the specification masks, the plot strip settings and the window layout. Patterns are not stored; they are re-read from their files.
+
+**File ▸ Open Session…** (Ctrl+Shift+O) replaces the workspace with a saved session: the files are re-read in the background, then each instance gets its processing state back, the active instance is selected and the view is restored. Files that have moved are reported and skipped. Because a session stores paths, keep the pattern files where they were, or edit the paths in the JSON.
 
 ## Keyboard Shortcuts
 

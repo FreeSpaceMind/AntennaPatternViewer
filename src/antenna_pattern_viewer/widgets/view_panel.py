@@ -88,7 +88,7 @@ class ViewPanel(QWidget):
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Format:"))
         self.plot_format_combo = QComboBox()
-        self.plot_format_combo.addItems(["1D Cut", "2D Polar"])
+        self.plot_format_combo.addItems(list(self.PLOT_FORMATS))
         self.plot_format_combo.currentTextChanged.connect(self.on_plot_format_changed)
         row1.addWidget(self.plot_format_combo)
         row1.addWidget(QLabel("Value:"))
@@ -121,6 +121,21 @@ class ViewPanel(QWidget):
         row3.addWidget(self.unwrap_phase)
         row3.addStretch()
         plot_layout.addLayout(row3)
+
+        # Sweep metric, shown only for the Frequency Sweep format
+        self.sweep_row = QWidget()
+        row4 = QHBoxLayout(self.sweep_row)
+        row4.setContentsMargins(0, 0, 0, 0)
+        row4.addWidget(QLabel("Sweep metric:"))
+        self.sweep_metric_combo = QComboBox()
+        from ..plot_layouts import SWEEP_METRICS
+        for key, label in SWEEP_METRICS.items():
+            self.sweep_metric_combo.addItem(label, key)
+        self.sweep_metric_combo.currentIndexChanged.connect(self.parameters_changed.emit)
+        row4.addWidget(self.sweep_metric_combo)
+        row4.addStretch()
+        self.sweep_row.setVisible(False)
+        plot_layout.addWidget(self.sweep_row)
 
         layout.addWidget(plot_group)
 
@@ -317,7 +332,8 @@ class ViewPanel(QWidget):
             'show_range': self.get_show_range(),
             'statistic_type': self.get_statistic_type(),
             'percentile_range': self.get_percentile_range(),
-            'enable_comparison': self.enable_comparison.isChecked()
+            'enable_comparison': self.enable_comparison.isChecked(),
+            'sweep_metric': self.get_sweep_metric(),
         }
         return params
 
@@ -361,6 +377,7 @@ class ViewPanel(QWidget):
 
     def on_plot_format_changed(self):
         """Handle plot format change."""
+        self.sweep_row.setVisible(self.get_plot_format() == 'sweep')
         self.parameters_changed.emit()
 
     def on_statistic_changed(self, statistic):
@@ -388,13 +405,83 @@ class ViewPanel(QWidget):
         indices = [self.phi_list.row(item) for item in selected_items]
         return [self.current_pattern.phi_angles[i] for i in indices]
 
+    # Display name -> plot format key handed to the plot widget
+    PLOT_FORMATS = {
+        "1D Cut": "1d_cut",
+        "2D Polar": "2d_polar",
+        "Polar Cut": "polar_cut",
+        "Amplitude + Phase": "amp_phase",
+        "Small Multiples": "small_multiples",
+        "Frequency Sweep": "sweep",
+    }
+
     def get_plot_format(self):
         """Get selected plot format."""
-        format_text = self.plot_format_combo.currentText()
-        if "2D Polar" in format_text:
-            return "2d_polar"
-        else:
-            return "1d_cut"
+        return self.PLOT_FORMATS.get(self.plot_format_combo.currentText(), "1d_cut")
+
+    def set_plot_format(self, key: str):
+        for name, value in self.PLOT_FORMATS.items():
+            if value == key:
+                self.plot_format_combo.setCurrentText(name)
+                return
+
+    def get_sweep_metric(self):
+        return self.sweep_metric_combo.currentData() or 'peak_gain'
+
+    def apply_parameters(self, params: dict):
+        """
+        Restore the panel from a get_current_parameters() dictionary (a
+        session). Selections are re-applied by nearest value; one
+        parameters_changed is emitted at the end.
+        """
+        if not params:
+            return
+        widgets = [self.plot_format_combo, self.value_type_combo, self.component_combo,
+                   self.show_cross_pol, self.unwrap_phase, self.enable_statistics,
+                   self.show_range, self.statistic_combo, self.enable_comparison,
+                   self.sweep_metric_combo, self.frequency_list, self.phi_list]
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            if 'plot_type' in params:
+                self.set_plot_format(params['plot_type'])
+            if 'value_type' in params:
+                text = {'gain': 'Gain', 'phase': 'Phase', 'axial_ratio': 'Axial Ratio'}.get(
+                    params['value_type'])
+                if text:
+                    self.value_type_combo.setCurrentText(text)
+            if 'component' in params:
+                names = {'e_co': 'Co-pol', 'e_cx': 'Cross-pol', 'e_theta': 'E-theta', 'e_phi': 'E-phi'}
+                if params['component'] in names:
+                    self.component_combo.setCurrentText(names[params['component']])
+            if 'show_cross_pol' in params:
+                self.show_cross_pol.setChecked(bool(params['show_cross_pol']))
+            if 'unwrap_phase' in params:
+                self.unwrap_phase.setChecked(bool(params['unwrap_phase']))
+            if 'statistics_enabled' in params:
+                self.enable_statistics.setChecked(bool(params['statistics_enabled']))
+            if 'show_range' in params:
+                self.show_range.setChecked(bool(params['show_range']))
+            if 'statistic_type' in params:
+                self.statistic_combo.setCurrentText(str(params['statistic_type']))
+            if 'enable_comparison' in params:
+                self.enable_comparison.setChecked(bool(params['enable_comparison']))
+            if 'sweep_metric' in params:
+                index = self.sweep_metric_combo.findData(params['sweep_metric'])
+                if index >= 0:
+                    self.sweep_metric_combo.setCurrentIndex(index)
+            if self.current_pattern is not None:
+                if params.get('selected_frequencies'):
+                    self._reselect_nearest(self.frequency_list, self.current_pattern.frequencies,
+                                           params['selected_frequencies'])
+                if params.get('selected_phi'):
+                    self._reselect_nearest(self.phi_list, self.current_pattern.phi_angles,
+                                           params['selected_phi'])
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        self.sweep_row.setVisible(self.get_plot_format() == 'sweep')
+        self.parameters_changed.emit()
 
     def get_value_type(self):
         """Get selected value type."""

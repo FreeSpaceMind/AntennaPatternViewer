@@ -1,11 +1,15 @@
 """
-Data-tip hover and delta cursors for a 1D cut.
+Data-tip hover and delta cursors for 1D axes.
 
 Hovering shows the nearest sample of the nearest trace. A left click pins
 cursor A, a second click pins cursor B and shows the difference between
 them; a third click starts again. A right click clears both. The hover
 tip is blitted over a cached background so it follows the mouse without a
 full redraw; the pinned cursors are drawn with the figure.
+
+The tracker works on every non-polar axes the getter returns (a single
+cut, the two panels of an amplitude/phase plot, the panels of small
+multiples); a pinned cursor remembers which panel it belongs to.
 
 Cursor artists are collections and text, never Line2D, so the data export
 and the Series table do not see them.
@@ -15,6 +19,9 @@ from __future__ import annotations
 from typing import Callable, List, Optional, Tuple
 
 import numpy as np
+
+# (theta, value, label, axes index)
+Pin = Tuple[float, float, str, int]
 
 
 class CursorTracker:
@@ -27,7 +34,7 @@ class CursorTracker:
         self._cids: List[int] = []
         self._background = None
         self._hover = None            # (scatter, annotation)
-        self._pinned: List[Tuple[float, float, str]] = []    # (theta, value, label)
+        self._pinned: List[Pin] = []
         self._pinned_artists: List = []
         self.on_readout: Optional[Callable[[str], None]] = None
 
@@ -55,12 +62,7 @@ class CursorTracker:
     def clear(self, redraw=False):
         """Remove the hover tip and both pinned cursors."""
         self._remove_hover()
-        for artist in self._pinned_artists:
-            try:
-                artist.remove()
-            except (ValueError, NotImplementedError):
-                pass
-        self._pinned_artists = []
+        self._remove_pinned_artists()
         self._pinned = []
         self._background = None
         self._report("")
@@ -68,35 +70,45 @@ class CursorTracker:
             self.canvas.draw_idle()
 
     def pinned(self) -> List[Tuple[float, float, str]]:
-        return list(self._pinned)
+        return [(t, v, label) for t, v, label, _i in self._pinned]
 
     # ------------------------------------------------------------ events
-    def _axes(self):
-        ax = self.axes_getter()
-        if ax is None or hasattr(ax, 'set_theta_zero_location'):
-            return None                    # 1D axes only
-        return ax
+    def _axes_list(self) -> list:
+        axes = self.axes_getter()
+        if axes is None:
+            return []
+        if not isinstance(axes, (list, tuple)):
+            axes = [axes]
+        return [ax for ax in axes if ax is not None and not hasattr(ax, 'set_theta_zero_location')]
+
+    def _axes_for(self, event):
+        axes = self._axes_list()
+        return event.inaxes if event.inaxes in axes else None
 
     def _toolbar_busy(self) -> bool:
-        mode = getattr(self.toolbar, 'mode', '')
-        return bool(mode)
+        return bool(getattr(self.toolbar, 'mode', ''))
 
     def _on_draw(self, _event):
         # The figure was redrawn (a replot, a style change): the cached
         # hover background is stale.
         self._background = None
 
-    def refresh(self, ax):
+    def refresh(self, axes=None):
         """
-        Re-create the pinned cursors on ``ax`` if a replot replaced the axes
-        they were drawn on. The plot widget calls this before its draw.
+        Re-create the pinned cursors if a replot replaced the axes they
+        were drawn on. The plot widget calls this before its draw.
         """
-        if not self._pinned or ax is None:
+        axes_list = self._axes_list() if axes is None else (
+            [a for a in (axes if isinstance(axes, (list, tuple)) else [axes])
+             if a is not None and not hasattr(a, 'set_theta_zero_location')])
+        if not self._pinned or not axes_list:
             return
-        if self._pinned_artists and getattr(self._pinned_artists[0], 'axes', None) is ax:
+        current = {id(a) for a in axes_list}
+        if self._pinned_artists and all(id(getattr(art, 'axes', None)) in current
+                                        for art in self._pinned_artists):
             return
-        self._pinned_artists = []
-        self._draw_pinned(ax)
+        self._remove_pinned_artists()
+        self._draw_pinned(axes_list)
 
     def _on_leave(self, _event):
         if self._hover is not None:
@@ -104,17 +116,17 @@ class CursorTracker:
             self._restore()
 
     def _on_motion(self, event):
-        ax = self._axes()
-        if ax is None or event.inaxes is not ax or self._toolbar_busy():
+        ax = self._axes_for(event)
+        if ax is None or self._toolbar_busy():
             return
         hit = self._nearest(ax, event)
         if hit is None:
             return
         theta, value, label = hit
         if self._hover is not None and getattr(self._hover[0], 'axes', None) is not ax:
-            self._remove_hover()          # a replot replaced the axes
-        if self._hover is None:
+            self._remove_hover()          # a replot replaced the axes, or another panel
             self._background = None
+        if self._hover is None:
             marker = ax.scatter([theta], [value], s=40, facecolor='none', edgecolor='black',
                                 linewidth=1.0, zorder=7, animated=True)
             tip = ax.annotate("", (theta, value), xytext=(10, 10), textcoords='offset points',
@@ -128,8 +140,8 @@ class CursorTracker:
         self._blit(ax)
 
     def _on_click(self, event):
-        ax = self._axes()
-        if ax is None or event.inaxes is not ax or self._toolbar_busy():
+        ax = self._axes_for(event)
+        if ax is None or self._toolbar_busy():
             return
         if event.button == 3:
             self.clear(redraw=True)
@@ -141,20 +153,16 @@ class CursorTracker:
             return
         if len(self._pinned) >= 2:
             self.clear()
-        self._pinned.append(hit)
-        for artist in self._pinned_artists:
-            try:
-                artist.remove()
-            except (ValueError, NotImplementedError):
-                pass
-        self._pinned_artists = []
-        self._draw_pinned(ax)
+        axes_list = self._axes_list()
+        self._pinned.append((*hit, axes_list.index(ax)))
+        self._remove_pinned_artists()
+        self._draw_pinned(axes_list)
         self._background = None
         self.canvas.draw_idle()
 
     # ------------------------------------------------------------ helpers
     def _nearest(self, ax, event):
-        """Nearest sample of any visible trace, in display space."""
+        """Nearest sample of any visible trace on ``ax``, in display space."""
         if event.x is None or event.y is None:
             return None
         best = None
@@ -177,10 +185,21 @@ class CursorTracker:
             return None
         return best[1], best[2], best[3]
 
-    def _draw_pinned(self, ax):
+    def _remove_pinned_artists(self):
+        for artist in self._pinned_artists:
+            try:
+                artist.remove()
+            except (ValueError, NotImplementedError):
+                pass
+        self._pinned_artists = []
+
+    def _draw_pinned(self, axes_list):
         colors = ['#d62728', '#1f77b4']
-        ymin, ymax = ax.get_ylim()
-        for index, (theta, value, label) in enumerate(self._pinned):
+        for index, (theta, value, label, ax_index) in enumerate(self._pinned):
+            if ax_index >= len(axes_list):
+                continue
+            ax = axes_list[ax_index]
+            ymin, ymax = ax.get_ylim()
             color = colors[index % len(colors)]
             name = 'A' if index == 0 else 'B'
             self._pinned_artists.append(
@@ -192,9 +211,10 @@ class CursorTracker:
                             xytext=(6, -14 if index else 8), textcoords='offset points',
                             fontsize=self.fontsize, color=color, zorder=8,
                             bbox=dict(boxstyle='round,pad=0.2', fc='white', ec=color, alpha=0.9)))
-        ax.set_ylim(ymin, ymax)
+            ax.set_ylim(ymin, ymax)
         text = self.delta_text()
-        if text and len(self._pinned) == 2:
+        if text and len(self._pinned) == 2 and axes_list:
+            ax = axes_list[min(self._pinned[0][3], len(axes_list) - 1)]
             self._pinned_artists.append(
                 ax.text(0.02, 0.98, text, transform=ax.transAxes, va='top', ha='left',
                         fontsize=self.fontsize, zorder=8,
@@ -203,10 +223,10 @@ class CursorTracker:
 
     def delta_text(self) -> str:
         if len(self._pinned) == 1:
-            t, v, label = self._pinned[0]
+            t, v, label, _i = self._pinned[0]
             return f"A: θ = {t:.2f}°, {v:.2f}  ({label})"
         if len(self._pinned) == 2:
-            (ta, va, la), (tb, vb, lb) = self._pinned
+            (ta, va, la, _ia), (tb, vb, lb, _ib) = self._pinned
             traces = f"  ({la})" if la == lb else f"  (A: {la}, B: {lb})"
             return (f"A: θ = {ta:.2f}°, {va:.2f}   B: θ = {tb:.2f}°, {vb:.2f}   "
                     f"Δθ = {tb - ta:.2f}°   Δ = {vb - va:.2f}{traces}")

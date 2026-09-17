@@ -37,6 +37,10 @@ class PatternInstance:
     # Processing history/state
     processing_history: list = field(default_factory=list)
     
+    # Options the file was read with (CUT frequency range, ATAMS
+    # interpolation), so a session can re-read it without asking again.
+    load_options: Dict[str, Any] = field(default_factory=dict)
+
     # Additional metadata
     load_timestamp: Optional[float] = None
     notes: str = ""

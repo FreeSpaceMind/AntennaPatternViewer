@@ -275,6 +275,11 @@ def apply_style(figure, ax, style: PlotStyle, colorbar=None, legend_visible=None
         legend_dirty = True
 
     # --- legend --------------------------------------------------------
+    # Labelled collections (specification masks) are drawn after the
+    # plotting function built its legend, so their presence forces a rebuild.
+    labelled_collections = [c for c in ax.collections
+                            if c.get_label() and not str(c.get_label()).startswith('_')]
+    legend_dirty = legend_dirty or bool(labelled_collections)
     legend = ax.get_legend()
     wants_legend = legend is not None and (legend_visible if legend_visible is not None
                                            else legend.get_visible())
@@ -287,6 +292,9 @@ def apply_style(figure, ax, style: PlotStyle, colorbar=None, legend_visible=None
             override = style.series.get(raw)
             handles.append(line)
             labels.append(override.label if override and override.label else raw)
+        for collection in labelled_collections:
+            handles.append(collection)
+            labels.append(str(collection.get_label()))
         if handles:
             kwargs = dict(ncol=max(int(style.legend_columns), 1), frameon=style.legend_frame)
             if style.legend_loc == 'outside right':

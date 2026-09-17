@@ -267,6 +267,20 @@ class PatternDataModel(QObject):
         self.apply_processing(_failed_key='phase_center_translation')
         self.processing_applied.emit("phase_center_translation")
     
+    def set_processing_state(self, state: Dict[str, Any]):
+        """
+        Replace the whole processing state (a session restore) and apply it.
+
+        Unknown keys are ignored and missing ones take their defaults, so a
+        state saved by an older version still loads.
+        """
+        fresh = default_processing_state()
+        for key, value in (state or {}).items():
+            if key in fresh:
+                fresh[key] = tuple(value) if isinstance(value, list) else value
+        self._processing_state = fresh
+        self.apply_processing()
+
     def set_mars(self, max_extent: Optional[float], taper: int = 0):
         """
         Enable or disable MARS.

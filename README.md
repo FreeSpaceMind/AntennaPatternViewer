@@ -10,12 +10,15 @@ A PyQt6-based GUI application for visualizing and analyzing antenna far-field pa
 
 - **Dockable Interface**: All panels can be moved, resized, floated, or hidden
 - **Multiple File Formats**: Support for GRASP .cut, NSI .ffd, TICRA .sph, ATAMS, and NPZ files
-- **Interactive Visualization**: Real-time 2D pattern plots with zoom, pan, and export
+- **Interactive Visualization**: 1D cuts, 2D polar maps, true polar cuts, amplitude-over-phase panels, small multiples (one panel per frequency) and frequency sweeps of pattern metrics, with zoom, pan and export
+- **Plot Control**: a floating Plot Style dialog (titles, labels, fonts, ticks, legend, grid, line styles, per-trace overrides, presets, JSON styles), pattern markers (peak, half-power beamwidth, first sidelobe), hover and delta cursors, specification masks from CSV or typed points with violation reporting, and a figure export dialog with vector formats
 - **Pattern Processing**: 
   - Phase center translation
   - Polarization conversion
-  - Pattern rotation (MARS)
-  - Amplitude scaling
+  - Measurement corrections (origin shifts) and antenna rotation
+  - MARS reflection suppression with a filter taper
+  - Amplitude and boresight normalization
+- **Session Files**: save and reopen the loaded files, their processing, the view, styles and masks together
 - **Analysis Tools**:
   - Phase center calculation
   - Axial ratio analysis
@@ -136,15 +139,14 @@ The application uses an icon sidebar for navigation with stacked panels:
 - **Processing Panel**: Apply phase center translation, rotation, polarization conversion, boresight normalization, dual sphere processing
 - **Analysis Panel**: Calculate phase centers, directivity, and spherical wave expansion
 - **Export Panel**: Export plots and pattern data
-- **2D View** (center): Interactive matplotlib plot with zoom, pan, grid, legend, axis limits, normalization, and export
+- **2D View** (center): Interactive matplotlib plot with zoom, pan, grid, legend, axis limits, normalization, markers, cursors, masks, a Plot Style dialog and a figure export dialog
 - **Data Display** (bottom): Shows pattern statistics and numerical data
 
 ### Menu Bar
 
 - **File**
-  - Open Pattern (Ctrl+O)
-  - Save Pattern (Ctrl+S)
-  - Export Plot (Ctrl+E)
+  - Save Session… (Ctrl+Shift+S)
+  - Open Session… (Ctrl+Shift+O)
 
 - **View**
   - Toggle panels visibility

@@ -138,7 +138,8 @@ class Plot2DWidget(QWidget):
                     show_range=show_range,
                     statistic_type=statistic_type,
                     percentile_range=percentile_range,
-                    pattern_key=self._active_pattern_key()
+                    pattern_key=self._active_pattern_key(),
+                    sweep_metric=params.get('sweep_metric', 'peak_gain')
                 )
                 self.plot_updated.emit()
             except Exception as e:

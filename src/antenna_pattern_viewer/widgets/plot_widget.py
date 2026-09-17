@@ -20,6 +20,9 @@ from PyQt6.QtCore import pyqtSignal
 from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
 from ..plot_style import PlotStyle, apply_style, cycle_colors, series_labels
 from ..pattern_markers import analyze_cut, draw_markers
+from ..plot_layouts import (plot_amplitude_phase, plot_frequency_sweep, plot_polar_cut,
+                            plot_small_multiples)
+from ..spec_mask import SpecMask, draw_masks, mask_report
 from ..plot_cursors import CursorTracker
 from PyQt6.QtCore import QSettings
 
@@ -31,8 +34,16 @@ logger = logging.getLogger(__name__)
 class PlotWidget(QWidget):
     """Widget containing matplotlib canvas and plot formatting controls."""
 
-    STYLE_FORMATS = ('1d_cut', '2d_polar', 'near_field')
-    STYLE_FORMAT_NAMES = {'1d_cut': '1D cut', '2d_polar': '2D polar', 'near_field': 'Near field'}
+    STYLE_FORMATS = ('1d_cut', '2d_polar', 'polar_cut', 'amp_phase', 'small_multiples',
+                     'sweep', 'near_field')
+    STYLE_FORMAT_NAMES = {'1d_cut': '1D cut', '2d_polar': '2D polar', 'polar_cut': 'Polar cut',
+                          'amp_phase': 'Amplitude + phase', 'small_multiples': 'Small multiples',
+                          'sweep': 'Frequency sweep', 'near_field': 'Near field'}
+    POLAR_FORMATS = ('2d_polar', 'polar_cut')
+    MULTI_AXES_FORMATS = ('amp_phase', 'small_multiples')
+    MARKER_FORMATS = ('1d_cut', 'amp_phase', 'small_multiples')
+    CURSOR_FORMATS = ('1d_cut', 'amp_phase', 'small_multiples', 'sweep')
+    MASK_FORMATS = ('1d_cut', 'amp_phase', 'small_multiples')
     SETTINGS_ORG = 'AntennaPatternViewer'
     SETTINGS_APP = 'PlotStyle'
     
@@ -55,27 +66,20 @@ class PlotWidget(QWidget):
         self.styles = {key: PlotStyle() for key in self.STYLE_FORMATS}
         self.style_dialog = None
         self._cycle_colors = None
+        self.current_sweep_metric = 'peak_gain'
+        self._data_axes = []          # the axes carrying data, in order
+        self._marker_axes = []        # the subset markers and masks go on
+        self.masks = []
+        self.mask_dialog = None
+        self._mask_artists = []
+        self._mask_text = ""
         self._load_styles()
         self.current_colorbar = None
 
-        # Store current matplotlib axis limits to preserve across data changes
-        self.current_matplotlib_limits = {
-            '1d_cut': {'xlim': None, 'ylim': None},
-            '2d_polar': {'ylim': None, 'zlim': None}
-        }
-
-        # Store axis limits for each plot type
-        self.axis_limits_memory = {
-            '1d_cut': {
-                'x_min': '', 'x_max': '', 
-                'y_min': '', 'y_max': ''
-            },
-            '2d_polar': {
-                'phi_min': '', 'phi_max': '',     # Angular limits
-                'theta_min': '', 'theta_max': '',  # Radial limits  
-                'z_min': '', 'z_max': ''          # Colorbar limits
-            }
-        }
+        # Remembered matplotlib limits and limit-field text, one entry per
+        # plot format, created on demand by _limits() and _limit_fields().
+        self.current_matplotlib_limits = {}
+        self.axis_limits_memory = {}
         
         self.setup_ui()
         
@@ -213,6 +217,11 @@ class PlotWidget(QWidget):
                                   "per-trace colours and presets")
         self.style_btn.clicked.connect(self.open_style_dialog)
         format_layout.addWidget(self.style_btn)
+        self.masks_btn = QPushButton("Masks…")
+        self.masks_btn.setToolTip("Specification masks: import from CSV or define points; "
+                                  "violations are reported under the plot")
+        self.masks_btn.clicked.connect(self.open_mask_dialog)
+        format_layout.addWidget(self.masks_btn)
 
         format_layout.addStretch()
         
@@ -224,7 +233,7 @@ class PlotWidget(QWidget):
         self._marker_artists = []
         self._marker_text = ""
         self._cursor_text = ""
-        self.cursors = CursorTracker(self.canvas, lambda: (self.figure.axes[0] if self.figure.axes else None),
+        self.cursors = CursorTracker(self.canvas, lambda: self._data_axes or list(self.figure.axes),
                                      toolbar=self.toolbar)
         self.cursors.on_readout = self._on_cursor_readout
 
@@ -245,7 +254,7 @@ class PlotWidget(QWidget):
                     show_cross_pol, unwrap_phase, plot_format, component,
                     statistics_enabled=False, show_range=True,
                     statistic_type='mean', percentile_range=(25, 75),
-                    preserve_limits=True, pattern_key=None
+                    preserve_limits=True, pattern_key=None, sweep_metric='peak_gain'
     ):
         """
         Update the plot with new data and parameters.
@@ -284,9 +293,10 @@ class PlotWidget(QWidget):
         self.current_statistic_type = statistic_type
         self.current_percentile_range = percentile_range
         self.current_pattern_key = pattern_key
+        self.current_sweep_metric = sweep_metric
 
         # Update control labels and visibility based on plot format
-        self.update_controls_for_plot_format(format_changing)
+        self.update_controls_for_plot_format(format_changing, old_plot_format)
 
         # Axis limits describe the pattern they were taken from. Keeping them
         # across a different pattern leaves a narrow-beam pattern drawn on a
@@ -306,29 +316,32 @@ class PlotWidget(QWidget):
             preserve_limits = False
 
         # Save current matplotlib axis limits before clearing (skip if resetting)
-        if preserve_limits and self.figure.axes:
-            ax = self.figure.axes[0]
-            is_polar = hasattr(ax, 'set_theta_zero_location')
-            if is_polar:
-                self.current_matplotlib_limits['2d_polar']['ylim'] = ax.get_ylim()
-                if hasattr(self, 'current_colorbar') and self.current_colorbar:
-                    self.current_matplotlib_limits['2d_polar']['zlim'] = self.current_colorbar.mappable.get_clim()
+        if preserve_limits and self.figure.axes and not format_changing:
+            ax = self._data_axes[0] if self._data_axes else self.figure.axes[0]
+            limits = self._limits(old_plot_format)
+            limits['ylim'] = ax.get_ylim()
+            if hasattr(ax, 'set_theta_zero_location'):
+                if getattr(self, 'current_colorbar', None):
+                    limits['zlim'] = self.current_colorbar.mappable.get_clim()
             else:
-                self.current_matplotlib_limits['1d_cut']['xlim'] = ax.get_xlim()
-                self.current_matplotlib_limits['1d_cut']['ylim'] = ax.get_ylim()
+                limits['xlim'] = ax.get_xlim()
 
-        # Clear the current figure
+        # Clear the current figure and create the axes the format needs;
+        # the multi-axes layouts create their own.
         self.figure.clear()
-        # Create axes with polar projection if needed for 2D polar plots
-        if plot_format == "2d_polar":
+        self.current_colorbar = None
+        self._data_axes = []
+        self._marker_axes = []
+        self.ax = None
+        if plot_format in self.POLAR_FORMATS:
             self.ax = self.figure.add_subplot(111, projection='polar')
-        else:
+        elif plot_format not in self.MULTI_AXES_FORMATS:
             self.ax = self.figure.add_subplot(111)
         self._apply_color_cycle(plot_format, frequencies, phi_angles, show_cross_pol)
 
         try:
-            # Statistics plot
-            if statistics_enabled:
+            # Statistics plot (the single-axes formats it was written for)
+            if statistics_enabled and plot_format in ('1d_cut', '2d_polar'):
                 # Determine statistic_over based on what's selected
                 if isinstance(phi_angles, list) and len(phi_angles) > 1:
                     statistic_over = 'phi'
@@ -378,7 +391,38 @@ class PlotWidget(QWidget):
                 )
                 # Store colorbar reference for formatting updates
                 self.current_colorbar = cbar
-            
+
+            elif plot_format == 'polar_cut':
+                plot_polar_cut(pattern, frequencies, phi_angles, value_type=value_type,
+                               component=component, show_cross_pol=show_cross_pol,
+                               unwrap_phase=unwrap_phase, ax=self.ax,
+                               normalize=self.normalize_check.isChecked(),
+                               colors=self._cycle_colors)
+
+            elif plot_format == 'amp_phase':
+                ax_amp, ax_phase = plot_amplitude_phase(
+                    pattern, frequencies, phi_angles, component=component,
+                    show_cross_pol=show_cross_pol, unwrap_phase=unwrap_phase,
+                    normalize=self.normalize_check.isChecked(), fig=self.figure,
+                    colors=self._cycle_colors)
+                self.ax = ax_amp
+                self._data_axes = [ax_amp, ax_phase]
+                self._marker_axes = [ax_amp]
+
+            elif plot_format == 'small_multiples':
+                axes = plot_small_multiples(
+                    pattern, frequencies, phi_angles, value_type=value_type,
+                    component=component, show_cross_pol=show_cross_pol,
+                    unwrap_phase=unwrap_phase, normalize=self.normalize_check.isChecked(),
+                    fig=self.figure, colors=self._cycle_colors)
+                self.ax = axes[0]
+                self._data_axes = list(axes)
+                self._marker_axes = list(axes)
+
+            elif plot_format == 'sweep':
+                plot_frequency_sweep(pattern, phi_angles, metric=sweep_metric,
+                                     component=component, ax=self.ax, colors=self._cycle_colors)
+
             # 1D cut plot (default)
             else:
                 plot_pattern_cut(
@@ -394,23 +438,29 @@ class PlotWidget(QWidget):
                     colors=self._cycle_colors,
                 )
 
-            # Restore saved axis limits to preserve scale across data changes
+            if not self._data_axes:
+                self._data_axes = [self.ax]
+            if plot_format == '1d_cut':
+                self._marker_axes = [self.ax]
+
+            # Restore saved axis limits to preserve scale across data changes.
+            # Shared axes propagate x; y goes to the first (amplitude) panel.
             if preserve_limits:
-                if plot_format == '2d_polar':
-                    limits = self.current_matplotlib_limits['2d_polar']
-                    if limits['ylim']:
-                        self.ax.set_ylim(limits['ylim'])
-                else:
-                    limits = self.current_matplotlib_limits['1d_cut']
-                    if limits['xlim']:
-                        self.ax.set_xlim(limits['xlim'])
-                    if limits['ylim']:
-                        self.ax.set_ylim(limits['ylim'])
+                limits = self._limits(plot_format)
+                if plot_format not in self.POLAR_FORMATS and limits.get('xlim'):
+                    self.ax.set_xlim(limits['xlim'])
+                if limits.get('ylim'):
+                    self.ax.set_ylim(limits['ylim'])
 
             # Apply formatting
             self.update_plot_formatting()
             
         except Exception as e:
+            if self.ax is None:
+                self.figure.clear()
+                self.ax = self.figure.add_subplot(111)
+            self._data_axes = [self.ax]
+            self._marker_axes = []
             self.ax.clear()
             self.ax.text(0.5, 0.5, f'Error plotting:\n{str(e)}',
                         ha='center', va='center', transform=self.ax.transAxes,
@@ -449,6 +499,7 @@ class PlotWidget(QWidget):
         self.current_show_cross_pol = show_cross_pol
         self.current_unwrap_phase = unwrap_phase
         self.current_plot_format = '1d_cut'  # Comparison only supports 1D cuts
+        self.current_colorbar = None
 
         # Update control labels for 1D plot
         self.update_controls_for_plot_format(format_changing=False)
@@ -463,6 +514,8 @@ class PlotWidget(QWidget):
         # Clear the current figure and create new axes
         self.figure.clear()
         self.ax = self.figure.add_subplot(111)
+        self._data_axes = [self.ax]
+        self._marker_axes = [self.ax]
 
         try:
             # plot_multiple_patterns expects phi_angles as a list of lists (one per pattern)
@@ -506,100 +559,61 @@ class PlotWidget(QWidget):
             logger.exception("Comparison plotting error: %s", e)
             self.canvas.draw()
 
-    def update_controls_for_plot_format(self, format_changing=False):
-        """Update axis control visibility and memory based on current plot format in PlotWidget."""
-        # Use the actual plot format that was set (this comes from the plot_format parameter)
-        is_2d = (self.current_plot_format == '2d_polar')
+    def _limits(self, plot_format):
+        """Remembered matplotlib limits for a plot format (created on demand)."""
+        return self.current_matplotlib_limits.setdefault(
+            plot_format, {'xlim': None, 'ylim': None, 'zlim': None})
 
-        if is_2d:
-            # Save current 1D axis limits before switching (only when format is changing)
-            if format_changing and hasattr(self, 'axis_limits_memory'):
-                self.save_current_axis_limits('1d_cut')
+    def _limit_fields(self, plot_format):
+        """Remembered text of the limit fields for a plot format."""
+        return self.axis_limits_memory.setdefault(
+            plot_format, {'x_min': '', 'x_max': '', 'y_min': '', 'y_max': '', 'z_min': '', 'z_max': ''})
 
-            # Update labels for 2D polar plot
-            self.legend_colorbar_check.setText("Colorbar")
+    def update_controls_for_plot_format(self, format_changing=False, old_plot_format=None):
+        """Show the strip controls that make sense for the current plot format."""
+        fmt = self.current_plot_format
+        is_polar = fmt in self.POLAR_FORMATS
+        is_image = fmt == '2d_polar'
+
+        if format_changing and old_plot_format is not None:
+            self.save_current_axis_limits(old_plot_format)
+
+        self.legend_colorbar_check.setText("Colorbar" if is_image else "Legend")
+        if is_image:
             self.y_theta_label.setText("Theta:")
-            
-            # Hide X-axis controls for 2D plots
-            self.x_phi_label.setVisible(False)
-            self.x_phi_min_edit.setVisible(False)
-            self.x_phi_max_edit.setVisible(False)
-            
-            # Find and hide the "to" label between X controls
-            parent_layout = self.x_phi_min_edit.parent().layout()
-            for i in range(parent_layout.count()):
-                item = parent_layout.itemAt(i)
-                if item and item.widget() and isinstance(item.widget(), QLabel):
-                    widget = item.widget()
-                    if (widget.text() == "to" and 
-                        widget != self.z_to_label and 
-                        # Check if it's between the X controls
-                        parent_layout.indexOf(widget) > parent_layout.indexOf(self.x_phi_min_edit) and
-                        parent_layout.indexOf(widget) < parent_layout.indexOf(self.y_theta_min_edit)):
-                        widget.setVisible(False)
-                        break
-            
-            # Show Z-axis controls for colorbar limits
-            self.z_label.setVisible(True)
-            self.z_min_edit.setVisible(True)
-            self.z_to_label.setVisible(True)
-            self.z_max_edit.setVisible(True)
+        elif fmt == 'polar_cut':
+            self.y_theta_label.setText("Radial:")
+        else:
+            self.y_theta_label.setText("Y-axis:")
+        self.x_phi_label.setText("X-axis:")
 
-            # Show smooth checkbox for 2D plots
-            self.smooth_check.setVisible(True)
-            self.markers_check.setVisible(False)
-            self.cursors_check.setVisible(False)
+        show_x = not is_polar
+        for widget in (self.x_phi_label, self.x_phi_min_edit, self.x_phi_max_edit):
+            widget.setVisible(show_x)
+        # The "to" label between the X fields
+        parent_layout = self.x_phi_min_edit.parent().layout()
+        for i in range(parent_layout.count()):
+            item = parent_layout.itemAt(i)
+            widget = item.widget() if item else None
+            if (isinstance(widget, QLabel) and widget.text() == "to" and widget is not self.z_to_label
+                    and parent_layout.indexOf(widget) > parent_layout.indexOf(self.x_phi_min_edit)
+                    and parent_layout.indexOf(widget) < parent_layout.indexOf(self.y_theta_min_edit)):
+                widget.setVisible(show_x)
+                break
+
+        for widget in (self.z_label, self.z_min_edit, self.z_to_label, self.z_max_edit):
+            widget.setVisible(is_image)
+        self.smooth_check.setVisible(is_image)
+        self.markers_check.setVisible(fmt in self.MARKER_FORMATS)
+        self.cursors_check.setVisible(fmt in self.CURSOR_FORMATS)
+        self.masks_btn.setVisible(fmt in self.MASK_FORMATS)
+        if fmt in self.CURSOR_FORMATS and self.cursors_check.isChecked():
+            self.cursors.enable()
+        else:
             self.cursors.disable()
 
-            # Restore 2D axis limits (only when format is changing)
-            if format_changing and hasattr(self, 'axis_limits_memory'):
-                self.restore_axis_limits('2d_polar')
-
-        else:
-            # Save current 2D axis limits before switching (only when format is changing)
-            if format_changing and hasattr(self, 'axis_limits_memory'):
-                self.save_current_axis_limits('2d_polar')
-            
-            # Update labels for 1D cut plot
-            self.legend_colorbar_check.setText("Legend")
-            self.x_phi_label.setText("X-axis:")
-            self.y_theta_label.setText("Y-axis:")
-            
-            # Show X-axis controls for 1D plots
-            self.x_phi_label.setVisible(True)
-            self.x_phi_min_edit.setVisible(True)
-            self.x_phi_max_edit.setVisible(True)
-            
-            # Find and show the "to" label between X controls
-            parent_layout = self.x_phi_min_edit.parent().layout()
-            for i in range(parent_layout.count()):
-                item = parent_layout.itemAt(i)
-                if item and item.widget() and isinstance(item.widget(), QLabel):
-                    widget = item.widget()
-                    if (widget.text() == "to" and 
-                        widget != self.z_to_label and 
-                        # Check if it's between the X controls
-                        parent_layout.indexOf(widget) > parent_layout.indexOf(self.x_phi_min_edit) and
-                        parent_layout.indexOf(widget) < parent_layout.indexOf(self.y_theta_min_edit)):
-                        widget.setVisible(True)
-                        break
-            
-            # Hide Z-axis controls for 1D plots
-            self.z_label.setVisible(False)
-            self.z_min_edit.setVisible(False)
-            self.z_to_label.setVisible(False)
-            self.z_max_edit.setVisible(False)
-
-            # Hide smooth checkbox for 1D plots
-            self.smooth_check.setVisible(False)
-            self.markers_check.setVisible(True)
-            self.cursors_check.setVisible(True)
-            if self.cursors_check.isChecked():
-                self.cursors.enable()
-
-            # Restore 1D axis limits (only when format is changing)
-            if format_changing and hasattr(self, 'axis_limits_memory'):
-                self.restore_axis_limits('1d_cut')
+        if format_changing:
+            self.restore_axis_limits(fmt)
 
     def get_colorbar_limits(self):
         """Get colorbar limits from Z-axis controls."""
@@ -633,6 +647,7 @@ class PlotWidget(QWidget):
                 percentile_range=self.current_percentile_range,
                 preserve_limits=preserve_limits,
                 pattern_key=getattr(self, 'current_pattern_key', None),
+                sweep_metric=getattr(self, 'current_sweep_metric', 'peak_gain'),
             )
     
     def save_plot(self, filename):
@@ -646,71 +661,41 @@ class PlotWidget(QWidget):
         self.current_pattern = None
 
     def save_current_axis_limits(self, plot_type):
-        """Save current axis limits for the specified plot type."""
-        if plot_type == '1d_cut':
-            self.axis_limits_memory['1d_cut']['x_min'] = self.x_phi_min_edit.text()
-            self.axis_limits_memory['1d_cut']['x_max'] = self.x_phi_max_edit.text()
-            self.axis_limits_memory['1d_cut']['y_min'] = self.y_theta_min_edit.text()
-            self.axis_limits_memory['1d_cut']['y_max'] = self.y_theta_max_edit.text()
-            
-        elif plot_type == '2d_polar':
-            self.axis_limits_memory['2d_polar']['phi_min'] = self.x_phi_min_edit.text()
-            self.axis_limits_memory['2d_polar']['phi_max'] = self.x_phi_max_edit.text()
-            self.axis_limits_memory['2d_polar']['theta_min'] = self.y_theta_min_edit.text()
-            self.axis_limits_memory['2d_polar']['theta_max'] = self.y_theta_max_edit.text()
-            self.axis_limits_memory['2d_polar']['z_min'] = self.z_min_edit.text()
-            self.axis_limits_memory['2d_polar']['z_max'] = self.z_max_edit.text()
+        """Remember the limit fields for a plot type."""
+        fields = self._limit_fields(plot_type)
+        fields['x_min'] = self.x_phi_min_edit.text()
+        fields['x_max'] = self.x_phi_max_edit.text()
+        fields['y_min'] = self.y_theta_min_edit.text()
+        fields['y_max'] = self.y_theta_max_edit.text()
+        fields['z_min'] = self.z_min_edit.text()
+        fields['z_max'] = self.z_max_edit.text()
 
     def restore_axis_limits(self, plot_type):
-        """Restore axis limits for the specified plot type."""
-        if plot_type == '1d_cut':
-            limits = self.axis_limits_memory['1d_cut']
-            self.x_phi_min_edit.setText(limits['x_min'])
-            self.x_phi_max_edit.setText(limits['x_max'])
-            self.y_theta_min_edit.setText(limits['y_min'])
-            self.y_theta_max_edit.setText(limits['y_max'])
-            
-        elif plot_type == '2d_polar':
-            limits = self.axis_limits_memory['2d_polar']
-            self.x_phi_min_edit.setText(limits['phi_min'])
-            self.x_phi_max_edit.setText(limits['phi_max'])
-            self.y_theta_min_edit.setText(limits['theta_min'])
-            self.y_theta_max_edit.setText(limits['theta_max'])
-            self.z_min_edit.setText(limits['z_min'])
-            self.z_max_edit.setText(limits['z_max'])
+        """Put a plot type's remembered limit fields back into the strip."""
+        fields = self._limit_fields(plot_type)
+        self.x_phi_min_edit.setText(fields['x_min'])
+        self.x_phi_max_edit.setText(fields['x_max'])
+        self.y_theta_min_edit.setText(fields['y_min'])
+        self.y_theta_max_edit.setText(fields['y_max'])
+        self.z_min_edit.setText(fields['z_min'])
+        self.z_max_edit.setText(fields['z_max'])
 
     def clear_axis_limits(self, plot_type=None):
-        """Clear axis limits for specified plot type or all types."""
-        if plot_type is None:
-            # Clear all
-            for ptype in self.axis_limits_memory:
-                for key in self.axis_limits_memory[ptype]:
-                    self.axis_limits_memory[ptype][key] = ''
-        else:
-            # Clear specific plot type
-            if plot_type in self.axis_limits_memory:
-                for key in self.axis_limits_memory[plot_type]:
-                    self.axis_limits_memory[plot_type][key] = ''
-        
-        # Also clear current UI
-        self.x_phi_min_edit.setText('')
-        self.x_phi_max_edit.setText('')
-        self.y_theta_min_edit.setText('')
-        self.y_theta_max_edit.setText('')
-        self.z_min_edit.setText('')
-        self.z_max_edit.setText('')
+        """Clear the limit fields for one plot type, or every plot type."""
+        targets = [plot_type] if plot_type is not None else list(self.axis_limits_memory)
+        for key in targets:
+            fields = self._limit_fields(key)
+            for name in fields:
+                fields[name] = ''
+        for edit in (self.x_phi_min_edit, self.x_phi_max_edit, self.y_theta_min_edit,
+                     self.y_theta_max_edit, self.z_min_edit, self.z_max_edit):
+            edit.setText('')
 
     def reset_scale(self):
         """Reset axis limits to auto-scale."""
         plot_type = self.current_plot_format
-        # Clear stored matplotlib limits
-        if plot_type == '2d_polar':
-            self.current_matplotlib_limits['2d_polar'] = {'ylim': None, 'zlim': None}
-        else:
-            self.current_matplotlib_limits['1d_cut'] = {'xlim': None, 'ylim': None}
-        # Clear UI fields
+        self.current_matplotlib_limits[plot_type] = {'xlim': None, 'ylim': None, 'zlim': None}
         self.clear_axis_limits(plot_type)
-        # Replot with auto-scale (don't preserve old limits)
         self.replot_current_data(preserve_limits=False)
 
     @staticmethod
@@ -799,11 +784,16 @@ class PlotWidget(QWidget):
     MARKER_TRACE_LIMIT = 6
 
     def _markers_apply(self) -> bool:
-        return (self.markers_check.isChecked() and self.current_plot_format == '1d_cut'
-                and self.current_value_type == 'gain' and not self.current_statistics_enabled)
+        fmt = self.current_plot_format
+        if not self.markers_check.isChecked() or fmt not in self.MARKER_FORMATS:
+            return False
+        if self.current_statistics_enabled:
+            return False
+        # The amplitude panel is always gain; the others follow the value type
+        return fmt == 'amp_phase' or self.current_value_type == 'gain'
 
-    def _draw_markers(self, ax):
-        """Mark the co-pol traces on a gain cut; remove the marks otherwise."""
+    def _draw_markers(self, axes=None):
+        """Mark the co-pol traces on the gain axes; remove the marks otherwise."""
         for artist in self._marker_artists:
             try:
                 artist.remove()
@@ -811,29 +801,35 @@ class PlotWidget(QWidget):
                 pass
         self._marker_artists = []
         self._marker_text = ""
-        if ax is None or not self._markers_apply() or hasattr(ax, 'set_theta_zero_location'):
+        axes = list(self._marker_axes) if axes is None else list(axes)
+        if not axes or not self._markers_apply():
             self._update_readout()
             return
         summaries = []
         count = 0
-        for line in ax.get_lines():
-            label = line.get_label()
-            if label.startswith('_') or not line.get_visible() or 'cross' in label.lower():
+        for ax in axes:
+            if ax is None or hasattr(ax, 'set_theta_zero_location'):
                 continue
-            if count >= self.MARKER_TRACE_LIMIT:
-                summaries.append(f"… only the first {self.MARKER_TRACE_LIMIT} traces are marked")
-                break
-            analysis = analyze_cut(line.get_xdata(), line.get_ydata())
-            if analysis is None:
-                continue
-            count += 1
-            self._marker_artists += draw_markers(ax, analysis, color=line.get_color())
-            summaries.append(f"{label}: {analysis.summary()}")
+            panel = f"[{ax.get_title()}] " if len(axes) > 1 and ax.get_title() else ""
+            for line in ax.get_lines():
+                label = line.get_label()
+                if label.startswith('_') or not line.get_visible() or 'cross' in label.lower():
+                    continue
+                if count >= self.MARKER_TRACE_LIMIT:
+                    break
+                analysis = analyze_cut(line.get_xdata(), line.get_ydata())
+                if analysis is None:
+                    continue
+                count += 1
+                self._marker_artists += draw_markers(ax, analysis, color=line.get_color())
+                summaries.append(f"{panel}{label}: {analysis.summary()}")
+        if count >= self.MARKER_TRACE_LIMIT:
+            summaries.append(f"… only the first {self.MARKER_TRACE_LIMIT} traces are marked")
         self._marker_text = "\n".join(summaries)
         self._update_readout()
 
     def _on_cursors_toggled(self, checked):
-        if checked and self.current_plot_format == '1d_cut':
+        if checked and self.current_plot_format in self.CURSOR_FORMATS:
             self.cursors.enable()
         else:
             self.cursors.disable()
@@ -844,9 +840,97 @@ class PlotWidget(QWidget):
         self._update_readout()
 
     def _update_readout(self):
-        parts = [t for t in (self._cursor_text, self._marker_text) if t]
+        parts = [t for t in (self._cursor_text, self._mask_text, self._marker_text) if t]
         self.readout_label.setText("\n".join(parts))
         self.readout_label.setVisible(bool(parts))
+
+    # ------------------------------------------------------------ masks
+    def set_masks(self, masks):
+        """Replace the specification masks and redraw."""
+        self.masks = [SpecMask.from_dict(m.to_dict()) for m in masks]
+        if self.mask_dialog is not None:
+            self.mask_dialog.set_masks(self.masks)
+        if self.figure.axes:
+            self.update_plot_formatting()
+
+    def open_mask_dialog(self):
+        from ..dialogs.mask_dialog import MaskDialog
+
+        if self.mask_dialog is None:
+            self.mask_dialog = MaskDialog(self.masks, self)
+            self.mask_dialog.masks_changed.connect(self._on_masks_changed)
+        else:
+            self.mask_dialog.set_masks(self.masks)
+        self.mask_dialog.show()
+        self.mask_dialog.raise_()
+        self.mask_dialog.activateWindow()
+
+    def _on_masks_changed(self, masks):
+        self.masks = list(masks)
+        if self.figure.axes:
+            self.update_plot_formatting()
+
+    def _draw_masks(self):
+        """Draw the masks on the marker axes and report violations."""
+        for artist in self._mask_artists:
+            try:
+                artist.remove()
+            except (ValueError, NotImplementedError):
+                pass
+        self._mask_artists = []
+        self._mask_text = ""
+        fmt = self.current_plot_format
+        axes = [a for a in self._marker_axes if a is not None]
+        if not self.masks or fmt not in self.MASK_FORMATS or not axes:
+            return
+        reports = []
+        for ax in axes:
+            self._mask_artists += draw_masks(ax, self.masks)
+            traces = [(line.get_label(), line.get_xdata(), line.get_ydata())
+                      for line in ax.get_lines()
+                      if not line.get_label().startswith('_') and line.get_visible()]
+            panel = f"[{ax.get_title()}] " if len(axes) > 1 and ax.get_title() else ""
+            reports += [panel + line for line in mask_report(self.masks, traces)]
+        self._mask_text = "\n".join(reports)
+
+    def strip_state(self) -> dict:
+        """The plot strip's settings, for a session file."""
+        # The live limit fields belong to the current format's memory; the
+        # memory is only written on a format change, so write it now.
+        self.save_current_axis_limits(self.current_plot_format)
+        return {
+            'grid': self.grid_check.isChecked(),
+            'legend': self.legend_colorbar_check.isChecked(),
+            'normalize': self.normalize_check.isChecked(),
+            'smooth': self.smooth_check.isChecked(),
+            'markers': self.markers_check.isChecked(),
+            'cursors': self.cursors_check.isChecked(),
+            'limits': {key: dict(value) for key, value in self.axis_limits_memory.items()},
+            'current_limits': {'x_min': self.x_phi_min_edit.text(), 'x_max': self.x_phi_max_edit.text(),
+                               'y_min': self.y_theta_min_edit.text(), 'y_max': self.y_theta_max_edit.text(),
+                               'z_min': self.z_min_edit.text(), 'z_max': self.z_max_edit.text()},
+        }
+
+    def apply_strip_state(self, state: dict):
+        """Restore the plot strip's settings from a session file."""
+        if not state:
+            return
+        checks = {'grid': self.grid_check, 'legend': self.legend_colorbar_check,
+                  'normalize': self.normalize_check, 'smooth': self.smooth_check,
+                  'markers': self.markers_check, 'cursors': self.cursors_check}
+        for key, widget in checks.items():
+            if key in state:
+                widget.blockSignals(True)
+                widget.setChecked(bool(state[key]))
+                widget.blockSignals(False)
+        for key, fields in (state.get('limits') or {}).items():
+            self._limit_fields(key).update({k: str(v) for k, v in fields.items()})
+        # The fields on screen follow the memory of whatever format is (or
+        # becomes) current; a later format switch restores its own entry.
+        self.restore_axis_limits(self.current_plot_format)
+        self._on_cursors_toggled(self.cursors_check.isChecked())
+        if self.current_pattern is not None:
+            self.replot_current_data(preserve_limits=False)
 
     # ------------------------------------------------------------ style
     def current_style(self) -> PlotStyle:
@@ -907,7 +991,8 @@ class PlotWidget(QWidget):
         colors = cycle_colors(style.color_cycle, max(n_freq, n_phi, 1))
         if colors:
             self._cycle_colors = colors
-            self.ax.set_prop_cycle(color=colors)
+            if self.ax is not None:
+                self.ax.set_prop_cycle(color=colors)
 
     def _settings(self) -> QSettings:
         return QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
@@ -938,63 +1023,62 @@ class PlotWidget(QWidget):
 
     def update_plot_formatting(self):
         """Update plot formatting without replotting data."""
-        if not self.figure.axes:
+        axes = [a for a in self._data_axes if a is not None] or list(self.figure.axes)
+        if not axes:
             return
-            
-        ax = self.figure.axes[0]
-        
-        # Check if this is a polar plot
+        ax = axes[0]
         is_polar = hasattr(ax, 'set_theta_zero_location')
-        
-        # Apply grid
-        ax.grid(self.grid_check.isChecked())
-        
+
+        for a in axes:
+            a.grid(self.grid_check.isChecked())
+
         if is_polar:
-            # Handle polar plot formatting
-            
-            # Update colorbar limits
-            if hasattr(self, 'current_colorbar') and self.current_colorbar:
+            if getattr(self, 'current_colorbar', None):
                 self.current_colorbar.ax.set_visible(self.legend_colorbar_check.isChecked())
-                
-                # Apply Z-axis limits to colorbar
                 vmin, vmax = self.get_colorbar_limits()
                 if vmin is not None or vmax is not None:
                     mappable = self.current_colorbar.mappable
                     current_vmin, current_vmax = mappable.get_clim()
-                    new_vmin = vmin if vmin is not None else current_vmin
-                    new_vmax = vmax if vmax is not None else current_vmax
-                    mappable.set_clim(vmin=new_vmin, vmax=new_vmax)
+                    mappable.set_clim(vmin=vmin if vmin is not None else current_vmin,
+                                      vmax=vmax if vmax is not None else current_vmax)
                     self.current_colorbar.update_normal(mappable)
-            
-            # Theta (radial) limits
+            elif ax.get_legend():
+                ax.get_legend().set_visible(self.legend_colorbar_check.isChecked())
+            # Radial limits
             self._apply_axis_limit(ax.set_ylim, ax.get_ylim,
                                    self.y_theta_min_edit.text(), self.y_theta_max_edit.text())
         else:
-            # Handle 1D plot formatting
-            
-            # Legend visibility
-            if ax.get_legend():
-                ax.get_legend().set_visible(self.legend_colorbar_check.isChecked())
-            
+            for a in axes:
+                if a.get_legend():
+                    a.get_legend().set_visible(self.legend_colorbar_check.isChecked())
             # X and Y axis limits. A minimum on its own is applied too;
-            # requiring both fields meant typing one did nothing.
+            # requiring both fields meant typing one did nothing. Shared x
+            # propagates to every panel; y is the first (amplitude) panel.
             self._apply_axis_limit(ax.set_xlim, ax.get_xlim,
                                    self.x_phi_min_edit.text(), self.x_phi_max_edit.text())
             self._apply_axis_limit(ax.set_ylim, ax.get_ylim,
                                    self.y_theta_min_edit.text(), self.y_theta_max_edit.text())
-        
+
+        # Specification masks go on before the style so its legend rebuild
+        # picks them up.
+        self._draw_masks()
 
         # The user's style goes on last so it wins over the plotting defaults.
+        style = self.current_style()
+        secondary = style.copy()
+        secondary.title = None
         try:
-            apply_style(self.figure, ax, self.current_style(),
-                        colorbar=getattr(self, 'current_colorbar', None),
-                        legend_visible=self.legend_colorbar_check.isChecked())
+            for index, a in enumerate(axes):
+                apply_style(self.figure, a, style if index == 0 else secondary,
+                            colorbar=getattr(self, 'current_colorbar', None) if index == 0 else None,
+                            legend_visible=self.legend_colorbar_check.isChecked())
         except Exception as e:      # a bad colour name must not kill the redraw
             logger.warning("Plot style could not be applied: %s", e)
         if self.style_dialog is not None and self.style_dialog.isVisible():
             self.style_dialog.set_series(series_labels(ax))
 
-        self._draw_markers(ax)
-        self.cursors.refresh(ax)
+        self._draw_markers()
+        self.cursors.refresh(axes)
 
         self.canvas.draw()
+

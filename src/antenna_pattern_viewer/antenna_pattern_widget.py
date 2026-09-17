@@ -116,6 +116,18 @@ class AntennaPatternWidget(QMainWindow):
         menubar = self.menuBar()
 
         # Help menu
+        file_menu = menubar.addMenu("&File")
+        save_session_action = QAction("&Save Session…", self)
+        save_session_action.setShortcut("Ctrl+Shift+S")
+        save_session_action.setStatusTip("Save the loaded files, processing, view, styles and masks")
+        save_session_action.triggered.connect(self.save_session)
+        file_menu.addAction(save_session_action)
+        load_session_action = QAction("&Open Session…", self)
+        load_session_action.setShortcut("Ctrl+Shift+O")
+        load_session_action.setStatusTip("Replace the workspace with a saved session")
+        load_session_action.triggered.connect(self.load_session)
+        file_menu.addAction(load_session_action)
+
         help_menu = menubar.addMenu("&Help")
 
         doc_action = QAction("&Documentation", self)
@@ -255,6 +267,50 @@ class AntennaPatternWidget(QMainWindow):
         settings.remove("geometry")
         settings.remove("windowState")
         self.reset_layout()
+
+    # Session files
+    def save_session(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from antenna_pattern_viewer.session import SESSION_SUFFIX, collect_session, write_session
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Session", f"session{SESSION_SUFFIX}",
+            f"Antenna Pattern Viewer session (*{SESSION_SUFFIX});;All files (*)")
+        if not path:
+            return
+        try:
+            written = write_session(path, collect_session(self))
+        except (OSError, TypeError, ValueError) as e:
+            QMessageBox.critical(self, "Save Failed", f"Could not save the session:\n{e}")
+            return
+        self.statusBar().showMessage(f"Session saved to {written}", 5000)
+
+    def load_session(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from antenna_pattern_viewer.session import SESSION_SUFFIX, read_session, restore_session
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Session", "",
+            f"Antenna Pattern Viewer session (*{SESSION_SUFFIX});;All files (*)")
+        if not path:
+            return
+        try:
+            data = read_session(path)
+        except (OSError, ValueError) as e:
+            QMessageBox.critical(self, "Open Failed", f"Could not read the session:\n{e}")
+            return
+
+        def done(missing):
+            if missing:
+                QMessageBox.warning(self, "Files Missing",
+                                    "These files from the session were not found and were "
+                                    "skipped:\n" + "\n".join(missing))
+            self.statusBar().showMessage(f"Session restored from {path}", 5000)
+
+        try:
+            restore_session(self, data, on_done=done)
+        except Exception as e:
+            QMessageBox.critical(self, "Open Failed", f"Could not restore the session:\n{e}")
 
     # Help methods
     def show_help(self):

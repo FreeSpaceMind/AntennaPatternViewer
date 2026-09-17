@@ -568,9 +568,14 @@ class FileManagerWidget(QWidget):
         self._load_total = len(list(file_paths))
         self._start_load_worker(jobs)
 
-    def _make_reader(self, file_path: Path):
+    def _make_reader(self, file_path: Path, options=None):
         """
         Build a no-argument callable that reads ``file_path``.
+
+        ``options`` supplies the format-specific choices (CUT frequency
+        range, ATAMS interpolation) without a dialog, as a session does; the
+        choices made are recorded in ``self._pending_options`` so the
+        instance can carry them.
 
         Returns None when the user cancels a format-specific import dialog.
 
@@ -579,12 +584,20 @@ class FileManagerWidget(QWidget):
         """
         suffix = file_path.suffix.lower()
         path_str = str(file_path)
+        options = dict(options or {})
+        pending = getattr(self, '_pending_options', None)
+        if pending is None:
+            pending = self._pending_options = {}
 
         if suffix == '.cut':
-            dialog = CutFileDialog(file_path.name, self)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return None
-            freq_start, freq_end = dialog.get_frequencies()
+            if 'frequency_start' in options and 'frequency_end' in options:
+                freq_start, freq_end = float(options['frequency_start']), float(options['frequency_end'])
+            else:
+                dialog = CutFileDialog(file_path.name, self)
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    return None
+                freq_start, freq_end = dialog.get_frequencies()
+            pending[str(file_path)] = {'frequency_start': freq_start, 'frequency_end': freq_end}
             return lambda: read_cut(path_str, freq_start, freq_end)
 
         if suffix == '.ffd':
@@ -601,19 +614,55 @@ class FileManagerWidget(QWidget):
             return read_sph
 
         if suffix == '.atams':
-            dialog = AtamsFileDialog(file_path.name, self)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return None
-            interpolate = dialog.get_interpolate()
+            if 'interpolate' in options:
+                interpolate = bool(options['interpolate'])
+            else:
+                dialog = AtamsFileDialog(file_path.name, self)
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    return None
+                interpolate = dialog.get_interpolate()
+            pending[str(file_path)] = {'interpolate': interpolate}
             return lambda: read_atams(path_str, interpolate=interpolate)
 
         raise ValueError(f"Unsupported file format: {suffix}")
 
-    def _start_load_worker(self, jobs):
+    def load_files_with_options(self, entries, on_finished=None):
+        """
+        Load files without dialogs, as a session restore does.
+
+        Args:
+            entries: sequence of (Path, options dict)
+            on_finished: called with the list of (path, PatternInstance)
+                that loaded, in arrival order, once the batch is done
+        """
+        jobs = []
+        for file_path, options in entries:
+            file_path = Path(file_path)
+            try:
+                read = self._make_reader(file_path, options)
+            except ValueError as e:
+                self._load_failures.append((file_path.name, str(e)))
+                continue
+            if read is not None:
+                jobs.append((file_path, read))
+        self._load_total = len(list(entries))
+        if not jobs:
+            self._report_load_failures(self._load_total)
+            if on_finished is not None:
+                on_finished([])
+            return
+        self._start_load_worker(jobs, on_finished=on_finished)
+
+    def _start_load_worker(self, jobs, on_finished=None):
         """Run the prepared read jobs in a background thread."""
         from antenna_pattern_viewer.workers import PatternLoadWorker
 
+        if not hasattr(self, '_batch_loaded'):
+            self._batch_loaded = []
+            self._batch_callbacks = {}
         worker = PatternLoadWorker(jobs, parent=self)
+        if on_finished is not None:
+            self._batch_callbacks[id(worker)] = on_finished
         worker.loaded.connect(self._on_pattern_loaded)
         worker.failed.connect(self._on_pattern_load_failed)
         worker.progress.connect(self._on_load_progress)
@@ -630,9 +679,12 @@ class FileManagerWidget(QWidget):
             pattern=pattern,
             source_file=file_path,
             display_name=file_path.name,
-            load_timestamp=time.time()
+            load_timestamp=time.time(),
+            load_options=dict(getattr(self, '_pending_options', {}).get(str(file_path), {})),
         )
         self.data_model.add_instance(instance)
+        if hasattr(self, '_batch_loaded'):
+            self._batch_loaded.append((file_path, instance))
         self._add_to_recent(str(file_path))
 
     def _on_pattern_load_failed(self, file_path, message, detail):
@@ -644,7 +696,11 @@ class FileManagerWidget(QWidget):
         self._report_load_failures(self._load_total)
         if worker in self._load_workers:
             self._load_workers.remove(worker)
+        callback = getattr(self, '_batch_callbacks', {}).pop(id(worker), None)
+        loaded, self._batch_loaded = list(getattr(self, '_batch_loaded', [])), []
         worker.deleteLater()
+        if callback is not None:
+            callback(loaded)
 
     def _report_load_failures(self, total):
         """Show one summary for a batch instead of a dialog per bad file."""
