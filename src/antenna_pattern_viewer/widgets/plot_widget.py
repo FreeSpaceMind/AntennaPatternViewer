@@ -19,6 +19,8 @@ from PyQt6.QtCore import pyqtSignal
 
 from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
 from ..plot_style import PlotStyle, apply_style, cycle_colors, series_labels
+from ..pattern_markers import analyze_cut, draw_markers
+from ..plot_cursors import CursorTracker
 from PyQt6.QtCore import QSettings
 
 import logging
@@ -119,6 +121,18 @@ class PlotWidget(QWidget):
         self.smooth_check.setVisible(False)  # Initially hidden, shown only for 2D plots
         format_layout.addWidget(self.smooth_check)
 
+        # Pattern markers (peak, HPBW, first sidelobe) and cursors, 1D cuts only
+        self.markers_check = QCheckBox("Markers")
+        self.markers_check.setToolTip("Mark the peak, the half-power beamwidth and the first "
+                                      "sidelobe of each co-pol trace (gain cuts)")
+        self.markers_check.toggled.connect(lambda _c: self.update_plot_formatting())
+        format_layout.addWidget(self.markers_check)
+        self.cursors_check = QCheckBox("Cursors")
+        self.cursors_check.setToolTip("Hover for a data tip; click to pin cursor A, click again "
+                                      "for B and the difference; right-click clears")
+        self.cursors_check.toggled.connect(self._on_cursors_toggled)
+        format_layout.addWidget(self.cursors_check)
+
         # X-axis/Phi limits
         self.x_phi_label = QLabel("X-axis:")
         format_layout.addWidget(self.x_phi_label)
@@ -202,10 +216,23 @@ class PlotWidget(QWidget):
 
         format_layout.addStretch()
         
+        # Readouts for markers and cursors; hidden until there is something to say
+        self.readout_label = QLabel("")
+        self.readout_label.setStyleSheet("font-size: 9pt; color: #444;")
+        self.readout_label.setWordWrap(True)
+        self.readout_label.setVisible(False)
+        self._marker_artists = []
+        self._marker_text = ""
+        self._cursor_text = ""
+        self.cursors = CursorTracker(self.canvas, lambda: (self.figure.axes[0] if self.figure.axes else None),
+                                     toolbar=self.toolbar)
+        self.cursors.on_readout = self._on_cursor_readout
+
         # Add to main layout
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
         layout.addLayout(format_layout)
+        layout.addWidget(self.readout_label)
         
         self.setLayout(layout)
         
@@ -520,6 +547,9 @@ class PlotWidget(QWidget):
 
             # Show smooth checkbox for 2D plots
             self.smooth_check.setVisible(True)
+            self.markers_check.setVisible(False)
+            self.cursors_check.setVisible(False)
+            self.cursors.disable()
 
             # Restore 2D axis limits (only when format is changing)
             if format_changing and hasattr(self, 'axis_limits_memory'):
@@ -562,6 +592,10 @@ class PlotWidget(QWidget):
 
             # Hide smooth checkbox for 1D plots
             self.smooth_check.setVisible(False)
+            self.markers_check.setVisible(True)
+            self.cursors_check.setVisible(True)
+            if self.cursors_check.isChecked():
+                self.cursors.enable()
 
             # Restore 1D axis limits (only when format is changing)
             if format_changing and hasattr(self, 'axis_limits_memory'):
@@ -761,6 +795,59 @@ class PlotWidget(QWidget):
 
         logger.info("Exported %d trace(s) to %s", len(traces), file_path)
 
+    # --------------------------------------------------- markers / cursors
+    MARKER_TRACE_LIMIT = 6
+
+    def _markers_apply(self) -> bool:
+        return (self.markers_check.isChecked() and self.current_plot_format == '1d_cut'
+                and self.current_value_type == 'gain' and not self.current_statistics_enabled)
+
+    def _draw_markers(self, ax):
+        """Mark the co-pol traces on a gain cut; remove the marks otherwise."""
+        for artist in self._marker_artists:
+            try:
+                artist.remove()
+            except (ValueError, NotImplementedError):
+                pass
+        self._marker_artists = []
+        self._marker_text = ""
+        if ax is None or not self._markers_apply() or hasattr(ax, 'set_theta_zero_location'):
+            self._update_readout()
+            return
+        summaries = []
+        count = 0
+        for line in ax.get_lines():
+            label = line.get_label()
+            if label.startswith('_') or not line.get_visible() or 'cross' in label.lower():
+                continue
+            if count >= self.MARKER_TRACE_LIMIT:
+                summaries.append(f"… only the first {self.MARKER_TRACE_LIMIT} traces are marked")
+                break
+            analysis = analyze_cut(line.get_xdata(), line.get_ydata())
+            if analysis is None:
+                continue
+            count += 1
+            self._marker_artists += draw_markers(ax, analysis, color=line.get_color())
+            summaries.append(f"{label}: {analysis.summary()}")
+        self._marker_text = "\n".join(summaries)
+        self._update_readout()
+
+    def _on_cursors_toggled(self, checked):
+        if checked and self.current_plot_format == '1d_cut':
+            self.cursors.enable()
+        else:
+            self.cursors.disable()
+        self._update_readout()
+
+    def _on_cursor_readout(self, text):
+        self._cursor_text = text
+        self._update_readout()
+
+    def _update_readout(self):
+        parts = [t for t in (self._cursor_text, self._marker_text) if t]
+        self.readout_label.setText("\n".join(parts))
+        self.readout_label.setVisible(bool(parts))
+
     # ------------------------------------------------------------ style
     def current_style(self) -> PlotStyle:
         """The style for the plot format on screen."""
@@ -906,5 +993,8 @@ class PlotWidget(QWidget):
             logger.warning("Plot style could not be applied: %s", e)
         if self.style_dialog is not None and self.style_dialog.isVisible():
             self.style_dialog.set_series(series_labels(ax))
+
+        self._draw_markers(ax)
+        self.cursors.refresh(ax)
 
         self.canvas.draw()

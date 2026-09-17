@@ -726,6 +726,14 @@ The header offers built-in presets (Default, Publication, Presentation, Dark); a
 
 Legend and grid *visibility* stay on the plot strip; the dialog controls how they look.
 
+### Pattern Markers
+
+**Markers** on the plot strip (1D gain cuts) marks every co-pol trace with its peak, its half-power beamwidth as a bracket at 3 dB below the peak, and its first sidelobe. The values are read from the plotted trace, so they reflect normalization and processing. A readout under the strip lists, per trace: peak value and angle, HPBW, first sidelobe level relative to the peak and its angle, and the depth of the first null. Up to six traces are marked to keep the plot readable. Cross-pol traces, phase, axial ratio and statistics plots are not marked. Markers are annotations, not traces, so they never appear in the data export or the Series table.
+
+### Cursors
+
+**Cursors** on the plot strip (1D cuts) enables a data tip that follows the mouse and reports the trace, θ and value of the nearest sample. A left click pins cursor A; a second click pins cursor B and shows Δθ and Δvalue between them, both on the plot and in the readout under the strip. A third click starts a new pair; a right click clears. The two cursors may sit on different traces, which is how you read a co/cross ratio or the difference between two cuts at the same angle. Cursors are ignored while the toolbar's zoom or pan tool is active, and pinned cursors survive replots and processing changes.
+
 ### Exporting a Figure
 
 The 2D dock's export opens a small dialog: file and format (PNG, PDF, SVG, JPEG, TIFF), width and height in inches, resolution in dpi, transparent background, and margin trimming. PDF and SVG are vector formats and are what a publication wants; the size in inches decides how large the fonts appear on the page. The figure is resized only for the write and the on-screen canvas is unchanged. The current plot style is applied, so what you see is what is exported.
