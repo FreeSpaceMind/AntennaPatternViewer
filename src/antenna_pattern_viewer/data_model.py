@@ -365,8 +365,26 @@ class PatternDataModel(QObject):
         """
         return self._view_params.copy()
     
+    def unique_display_name(self, name: str, exclude_id: Optional[str] = None) -> str:
+        """
+        ``name``, or ``name (2)``, ``name (3)``... if an instance already has it.
+
+        The same file is often loaded twice on purpose, to process the copies
+        differently and compare them; identical names would give identical
+        legend labels, and per-trace style overrides are keyed by label.
+        """
+        taken = {inst.display_name for inst in self._instances.values()
+                 if inst.instance_id != exclude_id}
+        if name not in taken:
+            return name
+        n = 2
+        while f"{name} ({n})" in taken:
+            n += 1
+        return f"{name} ({n})"
+
     def add_instance(self, instance: PatternInstance):
         """Add a new pattern instance."""
+        instance.display_name = self.unique_display_name(instance.display_name, instance.instance_id)
         self._instances[instance.instance_id] = instance
         self.instances_changed.emit()
         

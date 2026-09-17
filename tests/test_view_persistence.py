@@ -120,3 +120,59 @@ class TestAxisLimitsSurviveProcessing:
         first = widget._active_pattern_key()
         model.set_mars(0.05, taper=0)
         assert widget._active_pattern_key() == first
+
+
+class TestReportedBugs:
+    """Regressions reported after the plot control work landed."""
+
+    def test_figure_uses_a_layout_engine(self, qapp):
+        from antenna_pattern_viewer.widgets.plot_widget import PlotWidget
+
+        engine = PlotWidget().figure.get_layout_engine()
+        assert engine is not None and 'tight' in type(engine).__name__.lower()
+
+    def test_same_file_twice_gets_distinct_names(self, qapp, model, instance_factory):
+        a, b, c = instance_factory('horn.ffd'), instance_factory('horn.ffd'), instance_factory('horn.ffd')
+        for inst in (a, b, c):
+            model.add_instance(inst)
+        assert [i.display_name for i in model.get_all_instances()] == ['horn.ffd', 'horn.ffd (2)', 'horn.ffd (3)']
+
+    def test_comparison_survives_a_style_change_and_normalize(self, qapp, tmp_path, monkeypatch):
+        from PyQt6.QtCore import QSettings
+        from antenna_pattern_viewer.plot_style import PlotStyle
+        from antenna_pattern_viewer.widgets.plot_widget import PlotWidget
+
+        monkeypatch.setattr(PlotWidget, '_settings',
+                            lambda self: QSettings(str(tmp_path / 's.ini'), QSettings.Format.IniFormat))
+        widget = PlotWidget()
+        widget.update_comparison_plot([make_pattern(), make_pattern(beam_deg=10.0)], ['a', 'b'],
+                                      frequencies=[8e9], phi_angles=[0.0], value_type='gain',
+                                      show_cross_pol=False)
+        assert len(widget.figure.axes[0].get_lines()) == 2
+
+        widget.set_style(PlotStyle(title='styled'))                  # the style dialog's path
+        lines = widget.figure.axes[0].get_lines()
+        assert len(lines) == 2 and widget.figure.axes[0].get_title() == 'styled'
+        assert [l.get_label() for l in lines] == ['a', 'b']
+
+        widget.normalize_check.setChecked(True)                      # the strip's path
+        assert len(widget.figure.axes[0].get_lines()) == 2
+
+        # A single-pattern plot afterwards forgets the comparison
+        widget.update_plot(pattern=make_pattern(), frequencies=[8e9], phi_angles=[0.0], value_type='gain',
+                           show_cross_pol=False, unwrap_phase=True, plot_format='1d_cut',
+                           component='e_co', pattern_key='k')
+        widget.set_style(PlotStyle(title='single'))
+        assert len(widget.figure.axes[0].get_lines()) == 1
+
+    def test_cut_dialog_does_not_touch_the_start_while_typing_the_end(self, qapp):
+        from antenna_pattern_viewer.widgets.file_manager_widget import CutFileDialog
+
+        dialog = CutFileDialog('x.cut')
+        dialog.freq_start_spin.setValue(12.0)
+        dialog.freq_end_spin.setValue(1.0)          # "1" on the way to "15"
+        assert dialog.freq_start_spin.value() == 12.0
+        assert dialog.validation_error() is not None
+        dialog.freq_end_spin.setValue(15.0)
+        assert dialog.validation_error() is None
+        assert dialog.get_frequencies() == (12.0e9, 15.0e9)

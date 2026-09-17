@@ -66,6 +66,7 @@ class PlotWidget(QWidget):
         self.styles = {key: PlotStyle() for key in self.STYLE_FORMATS}
         self.style_dialog = None
         self._cycle_colors = None
+        self._comparison_args = None
         self.current_sweep_metric = 'peak_gain'
         self._data_axes = []          # the axes carrying data, in order
         self._marker_axes = []        # the subset markers and masks go on
@@ -88,7 +89,9 @@ class PlotWidget(QWidget):
         layout = QVBoxLayout()
         
         # Create matplotlib figure and canvas
-        self.figure = Figure(figsize=(10, 6))
+        # A layout engine re-runs on every draw, so titles and labels are
+        # not clipped when a style makes them larger or a format adds panels.
+        self.figure = Figure(figsize=(10, 6), layout='tight')
         self.canvas = FigureCanvas(self.figure)
         self.toolbar = NavigationToolbar(self.canvas, self)
         
@@ -294,6 +297,7 @@ class PlotWidget(QWidget):
         self.current_percentile_range = percentile_range
         self.current_pattern_key = pattern_key
         self.current_sweep_metric = sweep_metric
+        self._comparison_args = None
 
         # Update control labels and visibility based on plot format
         self.update_controls_for_plot_format(format_changing, old_plot_format)
@@ -478,7 +482,8 @@ class PlotWidget(QWidget):
             self.canvas.draw()
 
     def update_comparison_plot(self, patterns, labels, frequencies, phi_angles,
-                               value_type, show_cross_pol, unwrap_phase=True):
+                               value_type, show_cross_pol, unwrap_phase=True,
+                               preserve_limits=True):
         """
         Plot multiple patterns on the same axes for comparison.
 
@@ -500,16 +505,25 @@ class PlotWidget(QWidget):
         self.current_unwrap_phase = unwrap_phase
         self.current_plot_format = '1d_cut'  # Comparison only supports 1D cuts
         self.current_colorbar = None
+        # Remembered so that a replot from the strip or the style dialog
+        # redraws the comparison rather than the active pattern alone.
+        self._comparison_args = dict(patterns=list(patterns), labels=list(labels),
+                                     frequencies=frequencies, phi_angles=phi_angles,
+                                     value_type=value_type, show_cross_pol=show_cross_pol,
+                                     unwrap_phase=unwrap_phase)
 
         # Update control labels for 1D plot
         self.update_controls_for_plot_format(format_changing=False)
 
         # Save current matplotlib axis limits before clearing
-        if self.figure.axes:
+        limits = self._limits('1d_cut')
+        if preserve_limits and self.figure.axes:
             ax = self.figure.axes[0]
             if not hasattr(ax, 'set_theta_zero_location'):  # Not polar
-                self.current_matplotlib_limits['1d_cut']['xlim'] = ax.get_xlim()
-                self.current_matplotlib_limits['1d_cut']['ylim'] = ax.get_ylim()
+                limits['xlim'] = ax.get_xlim()
+                limits['ylim'] = ax.get_ylim()
+        elif not preserve_limits:
+            limits['xlim'] = limits['ylim'] = None
 
         # Clear the current figure and create new axes
         self.figure.clear()
@@ -538,7 +552,6 @@ class PlotWidget(QWidget):
             )
 
             # Restore saved axis limits
-            limits = self.current_matplotlib_limits['1d_cut']
             if limits['xlim']:
                 self.ax.set_xlim(limits['xlim'])
             if limits['ylim']:
@@ -630,7 +643,11 @@ class PlotWidget(QWidget):
         return vmin, vmax
 
     def replot_current_data(self, preserve_limits=True):
-        """Replot using stored parameters."""
+        """Replot using stored parameters, as a comparison if that is what is shown."""
+        comparison = getattr(self, '_comparison_args', None)
+        if comparison is not None:
+            self.update_comparison_plot(preserve_limits=preserve_limits, **comparison)
+            return
         if self.current_pattern is not None:
             self.update_plot(
                 pattern=self.current_pattern,

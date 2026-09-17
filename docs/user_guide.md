@@ -214,6 +214,10 @@ SPH files contain TICRA spherical wave expansion coefficients. On import:
 2. A far-field pattern is computed from the coefficients via `create_pattern_from_swe()`.
 3. The SWE coefficient data is stored on the pattern object (`pattern.swe`) for later use in the Analysis panel (near-field evaluation, re-export).
 
+### Loading the Same File Twice
+
+A file may be loaded more than once, for example to rotate the two copies differently and compare them. The second copy is named `file.ffd (2)`, the third `(3)`, so the legend and the Series tab of the Plot Style dialog can tell them apart.
+
 ### Recent Files Persistence
 
 Recent files, favorite directories, and the last browsed directory are persisted across application sessions using Qt's `QSettings` mechanism. Up to 10 recent files and 5 recent locations are stored.

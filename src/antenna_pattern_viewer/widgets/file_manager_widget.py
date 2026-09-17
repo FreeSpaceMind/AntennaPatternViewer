@@ -67,9 +67,9 @@ class CutFileDialog(QDialog):
         layout.addRow("End Frequency:", self.freq_end_spin)
 
         # read_cut spreads the frequencies evenly from start to end, so an end
-        # below the start silently produces a descending frequency axis.
-        self.freq_start_spin.valueChanged.connect(self._on_start_changed)
-        self.freq_end_spin.valueChanged.connect(self._on_end_changed)
+        # below the start would give a descending frequency axis. That is
+        # checked when the dialog is accepted, not while typing: a live check
+        # saw "1" on the way to "15" and pulled the start down to 1.
 
         self.freq_hint = QLabel(
             "A single frequency uses the same value for both. Otherwise the "
@@ -83,23 +83,25 @@ class CutFileDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._accept_if_valid)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
-    def _on_start_changed(self, value):
-        """Push the end frequency up so it never falls below the start."""
-        if self.freq_end_spin.value() < value:
-            self.freq_end_spin.blockSignals(True)
-            self.freq_end_spin.setValue(value)
-            self.freq_end_spin.blockSignals(False)
+    def validation_error(self):
+        """The reason the entered range is unusable, or None."""
+        self.freq_start_spin.interpretText()
+        self.freq_end_spin.interpretText()
+        if self.freq_end_spin.value() < self.freq_start_spin.value():
+            return ("The end frequency is below the start frequency. Enter the range "
+                    "in ascending order, or the same value for a single frequency.")
+        return None
 
-    def _on_end_changed(self, value):
-        """Pull the start frequency down so it never exceeds the end."""
-        if self.freq_start_spin.value() > value:
-            self.freq_start_spin.blockSignals(True)
-            self.freq_start_spin.setValue(value)
-            self.freq_start_spin.blockSignals(False)
+    def _accept_if_valid(self):
+        error = self.validation_error()
+        if error:
+            QMessageBox.warning(self, "Frequency Range", error)
+            return
+        self.accept()
 
     def get_frequencies(self):
         """Return frequencies in Hz."""
