@@ -765,7 +765,11 @@ The 2D dock's export opens a small dialog: file and format (PNG, PDF, SVG, JPEG,
 
 ### 3D Plot
 
-Reserved for future implementation. Currently displays a placeholder message.
+The far-field pattern as a surface: the radius is the value above a floor and the colour is the value, for the first selected frequency and the component and value type chosen in the View panel. For gain the floor is the peak minus **Dynamic range** (default 40 dB), so sidelobes that far down reach the origin. A central-format pattern is closed into the full sided sphere and the φ seam is closed, so the surface has no gap. **Colormap** picks the colour scale. **Style…** opens the Plot Style dialog for this view (its own style, remembered between sessions) and **Export…** the figure export dialog. The view follows processing changes and the View panel's selection.
+
+### Near Field
+
+Shows a near-field evaluation from the Analysis panel as a colour map of the chosen component, spherical or planar. **Style…** and **Export…** work as on the 2D view, with the view's own remembered style, and the figure keeps a tight layout so the colorbar label and title are never clipped.
 
 ### Data Display
 

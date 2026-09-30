@@ -4,6 +4,8 @@ from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as Navigation
 from matplotlib.figure import Figure
 import numpy as np
 
+from .figure_tools import FigureTools
+
 
 class PlotNearFieldWidget(QWidget):
     """Widget for displaying near field patterns."""
@@ -16,6 +18,9 @@ class PlotNearFieldWidget(QWidget):
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         self.toolbar = NavigationToolbar(self.canvas, self)
+        self.tools = FigureTools(self, self.figure, self.canvas, 'near_field', 'Near field',
+                                 self.update_plot)
+        self.current_colorbar = None
         
         # Component selector
         component_layout = QHBoxLayout()
@@ -24,6 +29,8 @@ class PlotNearFieldWidget(QWidget):
         self.component_combo.currentTextChanged.connect(self.update_plot)
         component_layout.addWidget(self.component_combo)
         component_layout.addStretch()
+        component_layout.addWidget(self.tools.style_btn)
+        component_layout.addWidget(self.tools.export_btn)
         
         layout = QVBoxLayout()
         layout.addLayout(component_layout)
@@ -148,17 +155,21 @@ class PlotNearFieldWidget(QWidget):
         # explicitly, which keeps the orientation right for non-square and
         # asymmetric grids; imshow would show the transpose.
         mesh_x, mesh_y = np.meshgrid(x, y, indexing='ij')
-        im = ax.pcolormesh(mesh_x, mesh_y, magnitude_db, cmap='jet', shading='auto')
+        # The analysis panel builds spherical grids as (theta, phi); this view
+        # puts phi on x, so that case is transposed to match the mesh.
+        field = magnitude_db.T if is_spherical else magnitude_db
+        im = ax.pcolormesh(mesh_x, mesh_y, field, cmap='jet', shading='auto')
         ax.set_aspect('equal' if not is_spherical else 'auto')
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(f'Near Field Pattern: {component}')
-        self.figure.colorbar(im, ax=ax, label='Magnitude (dB)')
-
+        self.current_colorbar = self.figure.colorbar(im, ax=ax, label='Magnitude (dB)')
+        self.tools.apply(ax, colorbar=self.current_colorbar)
         self.canvas.draw()
     
     def clear(self):
         """Clear the plot."""
+        self.current_colorbar = None
         self.figure.clear()
         self.canvas.draw()
