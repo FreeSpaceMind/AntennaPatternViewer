@@ -162,7 +162,7 @@ def restore_session(main_window, data: Dict[str, Any],
         for path, inst in loaded:
             by_path.setdefault(str(Path(path)), []).append(inst)
         active_id = None
-        states = {}
+        states: Dict[str, dict] = {}
         for entry in entries:
             queue = by_path.get(str(Path(entry['source_file'])))
             if not queue:
@@ -177,8 +177,32 @@ def restore_session(main_window, data: Dict[str, Any],
                 model.add_to_comparison(inst.instance_id)
             if entry.get('active'):
                 active_id = inst.instance_id
+        if active_id is None and loaded:
+            active_id = loaded[0][1].instance_id
+
+        def apply_states(active):
+            # Switching saves the outgoing instance's live (default) state
+            # onto it, so the restored states go on after the switch: the
+            # active one through the model, the others onto their instances.
+            if active is not None:
+                model.set_active_instance(active)
+            for inst in model.get_all_instances():
+                state = states.get(inst.instance_id)
+                if state is None:
+                    continue
+                if inst.instance_id == active:
+                    model.set_processing_state(state)
+                else:
+                    inst.processing_state = {k: tuple(v) if isinstance(v, list) else v
+                                             for k, v in state.items()}
+                    inst.processed_pattern = None
+
+        apply_states(active_id)
+
         # Derived patterns are rebuilt from their inputs by name, in order,
-        # so one derived from another derived one still works.
+        # after every input carries its restored processing, so one derived
+        # from another derived one still works.
+        derived_active = None
         by_name = {inst.display_name: inst for inst in model.get_all_instances()}
         for entry in derived_entries:
             recipe = entry['derived_from']
@@ -186,12 +210,6 @@ def restore_session(main_window, data: Dict[str, Any],
             if a is None or b is None:
                 logger.warning("Derived pattern %s skipped: inputs not loaded", entry.get('display_name'))
                 continue
-            for src in (a, b):
-                state = states.get(src.instance_id)
-                if state is not None:
-                    src.processing_state = {k: tuple(v) if isinstance(v, list) else v
-                                            for k, v in state.items()}
-                    src.processed_pattern = None
             try:
                 inst = model.add_derived_instance(recipe['op'], a.instance_id, b.instance_id,
                                                   entry.get('display_name'))
@@ -204,27 +222,10 @@ def restore_session(main_window, data: Dict[str, Any],
             if entry.get('in_comparison'):
                 model.add_to_comparison(inst.instance_id)
             if entry.get('active'):
-                active_id = inst.instance_id
-        if active_id is None and loaded:
-            active_id = loaded[0][1].instance_id
-        # Switching saves the outgoing instance's live (default) state onto
-        # it, so the restored states go on after the switch: the active one
-        # through the model, the others onto their instances for when they
-        # are activated or compared.
-        if active_id is not None:
-            model.set_active_instance(active_id)
-        for inst in model.get_all_instances():
-            state = states.get(inst.instance_id)
-            if state is None:
-                continue
-            if inst.instance_id == active_id:
-                model.set_processing_state(state)
-            else:
-                # JSON turned tuples into lists; the live state keeps tuples
-                # (the MARS pair, the rotation) so the pipeline cache keys match.
-                inst.processing_state = {k: tuple(v) if isinstance(v, list) else v
-                                         for k, v in state.items()}
-                inst.processed_pattern = None
+                derived_active = inst.instance_id
+        if derived_active is not None:
+            apply_states(derived_active)
+
         if view_panel is not None:
             view_panel.apply_parameters(data.get('view_panel') or {})
         if on_done is not None:

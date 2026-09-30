@@ -530,6 +530,20 @@ class PatternDataModel(QObject):
             return None
         if instance.instance_id == self._active_instance_id and self._pattern is not None:
             return self._pattern
+        if instance.processed_pattern is None and instance.pattern is not None:
+            # An instance that has not been active yet (a session restore, a
+            # comparison member) still carries its own processing state; run
+            # it once so the plot shows the pattern as processed, not raw.
+            state = {**default_processing_state(), **(instance.processing_state or {})}
+            if any(v not in (None, False) for v in state.values()):
+                saved_cache = self._pipeline_cache
+                self._pipeline_cache = {}
+                try:
+                    instance.processed_pattern = self._run_pipeline(instance.pattern, state)
+                except Exception as e:
+                    logger.error("Processing %s for display failed: %s", instance.display_name, e)
+                finally:
+                    self._pipeline_cache = saved_cache
         return instance.processed_pattern if instance.processed_pattern is not None else instance.pattern
 
     def get_comparison_compatibility(self) -> dict:

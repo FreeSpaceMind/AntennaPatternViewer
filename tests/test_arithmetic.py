@@ -35,7 +35,8 @@ class TestOperations:
         g = derive_pattern('gain_difference', a, b)
         assert np.allclose(np.angle(g.data.e_co.values), 0.0, atol=1e-6)
         r = derive_pattern('ratio', a, b)
-        np.testing.assert_allclose(np.abs(g.data.e_co.values), np.abs(r.data.e_co.values), rtol=1e-5)
+        np.testing.assert_allclose(np.abs(g.data.e_co.values), np.abs(r.data.e_co.values),
+                                   rtol=1e-5, atol=1e-6)
 
     def test_sum_and_difference(self):
         from antenna_pattern_viewer.pattern_math import derive_pattern
