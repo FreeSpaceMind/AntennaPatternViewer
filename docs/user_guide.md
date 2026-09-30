@@ -743,7 +743,11 @@ Legend and grid *visibility* stay on the plot strip; the dialog controls how the
 
 ### Pattern Markers
 
-**Markers** on the plot strip (1D gain cuts) marks every co-pol trace with its peak, its half-power beamwidth as a bracket at 3 dB below the peak, and its first sidelobe. The values are read from the plotted trace, so they reflect normalization and processing. A readout under the strip lists, per trace: peak value and angle, HPBW, first sidelobe level relative to the peak and its angle, and the depth of the first null. Up to six traces are marked to keep the plot readable. Cross-pol traces, phase, axial ratio and statistics plots are not marked. Markers are annotations, not traces, so they never appear in the data export or the Series table.
+**Markers** on the plot strip (1D Cut, Amplitude + Phase and Small Multiples) draws, on every co-pol trace of a gain cut, the markers chosen in the **…** dialog next to it: the peak, the beamwidth at one or more levels below the peak as a bracket, the first sidelobe, the first nulls, and the trace value at any angles you name. The numbers come from the FarFieldSpherical metrics module, so a marker, a frequency sweep and a script agree. A sided cut whose peak sits at θ = 0 holds only half the lobe; its beamwidth is taken as symmetric and labelled "(sym.)".
+
+The dialog is non-modal and floats; the markers stay on the plot when it is closed, and survive replots and processing changes. **Applies to** selects the default set, which every pattern follows, or one pattern on the plot: editing a pattern's set gives it its own, so the two copies of a file in a comparison can carry different markers, and **Draw markers on this pattern** switches one pattern's markers off. **Use default for this pattern** drops the override. Beamwidth levels and custom angles are comma-separated lists, for example `3, 10` and `-30, 0, 30`. Up to six traces are marked to keep the plot readable; cross-pol traces, phase, axial ratio, statistics and the polar view are not marked. The configuration is saved with a session.
+
+The readout under the strip lists one line per marked trace. It has a fixed height with a scrollbar, and the **Readout** toggle collapses it to a single summary line so many traces cannot crowd the plot.
 
 ### Cursors
 

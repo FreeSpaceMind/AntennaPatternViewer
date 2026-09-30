@@ -24,7 +24,7 @@ from matplotlib.figure import Figure
 from farfield_spherical import FarFieldSpherical, find_nearest
 
 from .pattern_markers import analyze_cut
-from .plotting import _component_values, _line_colors, plot_pattern_cut
+from .plotting import _component_values, _line_colors, finish_layout, plot_pattern_cut
 
 SWEEP_METRICS: Dict[str, str] = {
     'peak_gain': 'Peak gain (dBi)',
@@ -172,7 +172,7 @@ def plot_amplitude_phase(pattern, frequencies, phi, component='e_co', show_cross
     legend = ax_phase.get_legend()
     if legend is not None:
         legend.remove()
-    fig.tight_layout()
+    finish_layout(fig)
     return ax_amp, ax_phase
 
 
@@ -208,7 +208,7 @@ def plot_small_multiples(pattern, frequencies, phi, value_type='gain', component
             ax.get_legend().remove()
         ax.label_outer()
     used = flat[:n]
-    fig.tight_layout()
+    finish_layout(fig)
     return used
 
 

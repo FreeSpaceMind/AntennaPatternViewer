@@ -41,6 +41,13 @@ class Plot2DWidget(QWidget):
         except Exception:
             return None
 
+    def _active_pattern_name(self):
+        try:
+            instance = self.data_model.get_active_instance()
+            return instance.display_name if instance is not None else 'Pattern'
+        except Exception:
+            return 'Pattern'
+
     def setup_ui(self):
         """Setup 2D plot UI."""
         layout = QVBoxLayout(self)
@@ -139,7 +146,8 @@ class Plot2DWidget(QWidget):
                     statistic_type=statistic_type,
                     percentile_range=percentile_range,
                     pattern_key=self._active_pattern_key(),
-                    sweep_metric=params.get('sweep_metric', 'peak_gain')
+                    sweep_metric=params.get('sweep_metric', 'peak_gain'),
+                    pattern_name=self._active_pattern_name()
                 )
                 self.plot_updated.emit()
             except Exception as e:

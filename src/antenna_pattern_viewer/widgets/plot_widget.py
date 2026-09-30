@@ -19,7 +19,9 @@ from PyQt6.QtCore import pyqtSignal
 
 from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
 from ..plot_style import PlotStyle, apply_style, cycle_colors, series_labels
-from ..pattern_markers import analyze_cut, draw_markers
+from ..pattern_markers import (MarkerConfig, analyze_cut, custom_values, describe, draw_markers,
+                               levels_for)
+from ..widgets.readout_panel import ReadoutPanel
 from ..plot_layouts import (plot_amplitude_phase, plot_frequency_sweep, plot_polar_cut,
                             plot_small_multiples)
 from ..spec_mask import SpecMask, draw_masks, mask_report
@@ -68,6 +70,9 @@ class PlotWidget(QWidget):
         self._cycle_colors = None
         self._comparison_args = None
         self.current_sweep_metric = 'peak_gain'
+        self.current_pattern_name = None
+        self.marker_config = MarkerConfig()
+        self.markers_dialog = None
         self._data_axes = []          # the axes carrying data, in order
         self._marker_axes = []        # the subset markers and masks go on
         self.masks = []
@@ -134,6 +139,12 @@ class PlotWidget(QWidget):
                                       "sidelobe of each co-pol trace (gain cuts)")
         self.markers_check.toggled.connect(lambda _c: self.update_plot_formatting())
         format_layout.addWidget(self.markers_check)
+        self.markers_btn = QPushButton("…")
+        self.markers_btn.setMaximumWidth(26)
+        self.markers_btn.setToolTip("Choose which markers to draw, at which levels and angles, "
+                                    "for all patterns or one at a time")
+        self.markers_btn.clicked.connect(self.open_markers_dialog)
+        format_layout.addWidget(self.markers_btn)
         self.cursors_check = QCheckBox("Cursors")
         self.cursors_check.setToolTip("Hover for a data tip; click to pin cursor A, click again "
                                       "for B and the difference; right-click clears")
@@ -228,10 +239,9 @@ class PlotWidget(QWidget):
 
         format_layout.addStretch()
         
-        # Readouts for markers and cursors; hidden until there is something to say
-        self.readout_label = QLabel("")
-        self.readout_label.setStyleSheet("font-size: 9pt; color: #444;")
-        self.readout_label.setWordWrap(True)
+        # Readouts for markers, masks and cursors: a fixed-height, scrollable
+        # panel that can be collapsed, so many traces cannot crowd the plot.
+        self.readout_label = ReadoutPanel()
         self.readout_label.setVisible(False)
         self._marker_artists = []
         self._marker_text = ""
@@ -257,7 +267,8 @@ class PlotWidget(QWidget):
                     show_cross_pol, unwrap_phase, plot_format, component,
                     statistics_enabled=False, show_range=True,
                     statistic_type='mean', percentile_range=(25, 75),
-                    preserve_limits=True, pattern_key=None, sweep_metric='peak_gain'
+                    preserve_limits=True, pattern_key=None, sweep_metric='peak_gain',
+                    pattern_name=None
     ):
         """
         Update the plot with new data and parameters.
@@ -297,6 +308,7 @@ class PlotWidget(QWidget):
         self.current_percentile_range = percentile_range
         self.current_pattern_key = pattern_key
         self.current_sweep_metric = sweep_metric
+        self.current_pattern_name = pattern_name
         self._comparison_args = None
 
         # Update control labels and visibility based on plot format
@@ -440,6 +452,7 @@ class PlotWidget(QWidget):
                     unwrap_phase=unwrap_phase,
                     normalize=self.normalize_check.isChecked(),
                     colors=self._cycle_colors,
+                    pattern_name=pattern_name,
                 )
 
             if not self._data_axes:
@@ -618,6 +631,7 @@ class PlotWidget(QWidget):
             widget.setVisible(is_image)
         self.smooth_check.setVisible(is_image)
         self.markers_check.setVisible(fmt in self.MARKER_FORMATS)
+        self.markers_btn.setVisible(fmt in self.MARKER_FORMATS)
         self.cursors_check.setVisible(fmt in self.CURSOR_FORMATS)
         self.masks_btn.setVisible(fmt in self.MASK_FORMATS)
         if fmt in self.CURSOR_FORMATS and self.cursors_check.isChecked():
@@ -665,6 +679,7 @@ class PlotWidget(QWidget):
                 preserve_limits=preserve_limits,
                 pattern_key=getattr(self, 'current_pattern_key', None),
                 sweep_metric=getattr(self, 'current_sweep_metric', 'peak_gain'),
+                pattern_name=getattr(self, 'current_pattern_name', None),
             )
     
     def save_plot(self, filename):
@@ -810,7 +825,7 @@ class PlotWidget(QWidget):
         return fmt == 'amp_phase' or self.current_value_type == 'gain'
 
     def _draw_markers(self, axes=None):
-        """Mark the co-pol traces on the gain axes; remove the marks otherwise."""
+        """Mark the co-pol traces on the gain axes as the marker config asks."""
         for artist in self._marker_artists:
             try:
                 artist.remove()
@@ -828,22 +843,79 @@ class PlotWidget(QWidget):
             if ax is None or hasattr(ax, 'set_theta_zero_location'):
                 continue
             panel = f"[{ax.get_title()}] " if len(axes) > 1 and ax.get_title() else ""
+            seen_per_pattern: dict = {}
             for line in ax.get_lines():
                 label = line.get_label()
-                if label.startswith('_') or not line.get_visible() or 'cross' in label.lower():
+                name = line.get_gid()
+                if not line.get_visible() or 'cross' in label.lower():
+                    continue
+                if label.startswith('_') and name is None:
+                    continue
+                marker_set = self.marker_config.for_pattern(name)
+                if marker_set is None:
                     continue
                 if count >= self.MARKER_TRACE_LIMIT:
                     break
-                analysis = analyze_cut(line.get_xdata(), line.get_ydata())
-                if analysis is None:
+                theta, values = line.get_xdata(), line.get_ydata()
+                metrics = analyze_cut(theta, values, levels_db=levels_for(marker_set))
+                customs = custom_values(theta, values, marker_set)
+                if metrics is None and not customs:
                     continue
                 count += 1
-                self._marker_artists += draw_markers(ax, analysis, color=line.get_color())
-                summaries.append(f"{panel}{label}: {analysis.summary()}")
+                self._marker_artists += draw_markers(ax, metrics, color=line.get_color(),
+                                                     marker_set=marker_set, customs=customs)
+                # A comparison labels only the first cut of each pattern
+                if label.startswith('_'):
+                    k = seen_per_pattern.get(name, 1) + 1
+                    seen_per_pattern[name] = k
+                    shown = f"{name} (cut {k})"
+                else:
+                    seen_per_pattern.setdefault(name, 1)
+                    shown = label
+                summaries.append(f"{panel}{shown}: {describe(metrics, marker_set, customs)}")
         if count >= self.MARKER_TRACE_LIMIT:
             summaries.append(f"… only the first {self.MARKER_TRACE_LIMIT} traces are marked")
         self._marker_text = "\n".join(summaries)
         self._update_readout()
+        if self.markers_dialog is not None and self.markers_dialog.isVisible():
+            self.markers_dialog.set_patterns(self.pattern_names())
+
+    def pattern_names(self) -> list:
+        """Names of the patterns on the plot, in drawing order."""
+        names = []
+        for ax in self._data_axes or self.figure.axes:
+            for line in ax.get_lines():
+                name = line.get_gid()
+                if name and name not in names:
+                    names.append(name)
+        return names
+
+    def set_marker_config(self, config: MarkerConfig):
+        self.marker_config = config.copy()
+        if self.markers_dialog is not None:
+            self.markers_dialog.set_config(self.marker_config)
+        if self.figure.axes:
+            self.update_plot_formatting()
+
+    def open_markers_dialog(self):
+        from ..dialogs.markers_dialog import MarkersDialog
+
+        if self.markers_dialog is None:
+            self.markers_dialog = MarkersDialog(self.marker_config, self)
+            self.markers_dialog.config_changed.connect(self._on_marker_config_changed)
+        else:
+            self.markers_dialog.set_config(self.marker_config)
+        self.markers_dialog.set_patterns(self.pattern_names())
+        if not self.markers_check.isChecked():
+            self.markers_check.setChecked(True)      # opening the dialog means "I want markers"
+        self.markers_dialog.show()
+        self.markers_dialog.raise_()
+        self.markers_dialog.activateWindow()
+
+    def _on_marker_config_changed(self, config):
+        self.marker_config = config.copy()
+        if self.figure.axes:
+            self.update_plot_formatting()
 
     def _on_cursors_toggled(self, checked):
         if checked and self.current_plot_format in self.CURSOR_FORMATS:
@@ -921,6 +993,7 @@ class PlotWidget(QWidget):
             'normalize': self.normalize_check.isChecked(),
             'smooth': self.smooth_check.isChecked(),
             'markers': self.markers_check.isChecked(),
+            'marker_config': self.marker_config.to_dict(),
             'cursors': self.cursors_check.isChecked(),
             'limits': {key: dict(value) for key, value in self.axis_limits_memory.items()},
             'current_limits': {'x_min': self.x_phi_min_edit.text(), 'x_max': self.x_phi_max_edit.text(),
@@ -940,6 +1013,8 @@ class PlotWidget(QWidget):
                 widget.blockSignals(True)
                 widget.setChecked(bool(state[key]))
                 widget.blockSignals(False)
+        if state.get('marker_config'):
+            self.marker_config = MarkerConfig.from_dict(state['marker_config'])
         for key, fields in (state.get('limits') or {}).items():
             self._limit_fields(key).update({k: str(v) for k, v in fields.items()})
         # The fields on screen follow the memory of whatever format is (or
@@ -1097,5 +1172,9 @@ class PlotWidget(QWidget):
         self._draw_markers()
         self.cursors.refresh(axes)
 
+        # The plotting functions used to call tight_layout(), which leaves a
+        # placeholder engine and switched the figure's tight engine off on
+        # the next replot; keep it enforced whatever drew the axes.
+        self.figure.set_layout_engine('tight')
         self.canvas.draw()
 

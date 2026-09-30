@@ -10,6 +10,23 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def finish_layout(fig):
+    """
+    Tighten a figure that has no layout engine of its own.
+
+    matplotlib's ``tight_layout()`` runs once and then leaves a placeholder
+    engine behind, which silently switched off the tight engine the plot
+    widget sets on its figure. A figure with a real engine re-lays itself
+    out on every draw and must be left alone.
+    """
+    from matplotlib.layout_engine import PlaceHolderLayoutEngine
+
+    engine = fig.get_layout_engine()
+    if engine is None or isinstance(engine, PlaceHolderLayoutEngine):
+        fig.tight_layout()
+
+
 def _component_values(pattern, component, value_type, frequency_indices, unwrap_phase=True):
     """
     dB gain, phase in degrees, or axial ratio for the selected frequencies only.
@@ -76,10 +93,14 @@ def plot_pattern_cut(
     ax: Optional[plt.Axes] = None,
     fig_size: Tuple[float, float] = (10, 6),
     title: Optional[str] = None,
-    colors: Optional[List[Any]] = None
+    colors: Optional[List[Any]] = None,
+    pattern_name: Optional[str] = None
 ) -> plt.Figure:
     """
     Plot antenna pattern cuts with selectable value type.
+
+    ``pattern_name`` is stored as each line's gid, so tools that configure
+    per pattern (markers) can tell whose trace a line is.
 
     ``colors`` optionally supplies the sequence of line colours (one per
     frequency when there are many lines, otherwise one per phi cut); it is
@@ -316,6 +337,10 @@ def plot_pattern_cut(
                     )
     
     # Set plot labels and grid
+    if pattern_name is not None:
+        for line in ax.get_lines():
+            if line.get_gid() is None:
+                line.set_gid(pattern_name)
     ax.set_xlabel('Theta (degrees)')
     ax.set_ylabel(y_label)
     
@@ -341,7 +366,7 @@ def plot_pattern_cut(
         ax.legend(loc='best')
     
     # Make layout tight
-    fig.tight_layout()
+    finish_layout(fig)
     
     return fig
 
@@ -508,6 +533,7 @@ def plot_multiple_patterns(
                 phi_theta,
                 co_pol_data[:, phi_idx_actual],
                 '-',  # Solid line for co-pol
+                gid=label,
                 color=color,
                 label=line_label
             )[0]
@@ -522,7 +548,8 @@ def plot_multiple_patterns(
                 cx_line = ax.plot(
                     phi_theta,
                     cx_pol_data[:, phi_idx_actual],
-                    '--',  # Dashed line for cross-pol
+                    '--',
+                    gid=label,  # Dashed line for cross-pol
                     color=color,
                     label=f"{label} (cross-pol)" if phi_idx == 0 else "_nolegend_"
                 )[0]
@@ -553,7 +580,7 @@ def plot_multiple_patterns(
         ax.legend(handles=legend_handles, loc='best')
     
     # Make layout tight
-    fig.tight_layout()
+    finish_layout(fig)
     
     return fig, ax
 
@@ -730,7 +757,7 @@ def plot_pattern_difference(
     ax.grid(True)
     
     # Make layout tight
-    fig.tight_layout()
+    finish_layout(fig)
     
     return fig
 
@@ -1000,7 +1027,7 @@ def plot_pattern_statistics(
         ax.legend(loc='best')
     
     # Make layout tight
-    fig.tight_layout()
+    finish_layout(fig)
     
     return fig
 
@@ -1312,7 +1339,7 @@ def plot_phase_slope_vs_frequency(pattern, theta: float = 0.0, phi: float = 0.0,
     labels = [l.get_label() for l in lines]
     ax.legend(lines, labels, loc='upper left')
     
-    fig.tight_layout()
+    finish_layout(fig)
     return fig
 
 def plot_pattern_2d_polar(
@@ -1534,6 +1561,6 @@ def plot_pattern_2d_polar(
         cbar.ax.tick_params(labelsize=9)
     
     # Adjust layout
-    plt.tight_layout()
+    finish_layout(ax.figure)
     
     return fig, cbar
