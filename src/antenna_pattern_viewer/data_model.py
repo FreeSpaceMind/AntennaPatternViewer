@@ -365,6 +365,30 @@ class PatternDataModel(QObject):
         """
         return self._view_params.copy()
     
+    def add_derived_instance(self, op: str, a_id: str, b_id: str,
+                             name: Optional[str] = None) -> PatternInstance:
+        """
+        Add a new instance computed from two loaded ones (see pattern_math).
+
+        The inputs are the instances' processed patterns, so the result is
+        what the comparison plot shows for each. It is a snapshot: changing
+        the inputs' processing afterwards does not update it.
+        """
+        from .pattern_math import derive_pattern, derived_name
+
+        a, b = self._instances.get(a_id), self._instances.get(b_id)
+        if a is None or b is None:
+            raise ValueError("Both patterns must be loaded")
+        result = derive_pattern(op, self.get_instance_pattern(a), self.get_instance_pattern(b))
+        instance = PatternInstance(
+            pattern=result, source_file=None,
+            display_name=name or derived_name(op, a.display_name, b.display_name),
+            derived_from={'op': op, 'a': a.display_name, 'b': b.display_name},
+            notes=f"Derived: {op} of '{a.display_name}' and '{b.display_name}'",
+        )
+        self.add_instance(instance)
+        return instance
+
     def unique_display_name(self, name: str, exclude_id: Optional[str] = None) -> str:
         """
         ``name``, or ``name (2)``, ``name (3)``... if an instance already has it.

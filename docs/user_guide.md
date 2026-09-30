@@ -783,6 +783,18 @@ This tab is populated only after clicking **Calculate Near Field** in the Analys
 
 ---
 
+## Combining Patterns
+
+**Combine Patterns…** in the View panel's comparison group, or **Combine with…** in a pattern's context menu, derives a new pattern from two loaded ones and adds it to the list like any other:
+
+| Operation | Result |
+|-----------|--------|
+| **A / B** | The complex ratio of the co- and cross-polar components, with B's phase aligned to A at boresight. Its gain is the gain difference in dB and its phase the phase difference, so a before-and-after comparison becomes one trace you can put a mask on |
+| **\|A / B\|** | The same magnitudes with zero phase, when only the level difference matters |
+| **A − B**, **A + B** | The complex field difference or sum on the θ/φ components, for cancellation or superposition studies |
+
+The inputs are the patterns as processed, which is what the comparison plot shows for each. The result is a snapshot: changing an input's processing afterwards does not update it; combine again for a fresh one. Both inputs must be on the same θ, φ and frequency grids; bring them together first with the coordinate format or subsampling if they are not. A derived pattern is saved in a session as its recipe and rebuilt from its inputs on open.
+
 ## Session Files
 
 **File ▸ Save Session…** (Ctrl+Shift+S) writes a `.apvsession` JSON file holding the loaded files with the options they were read with (CUT frequency range, ATAMS interpolation), each instance's processing state, view settings and comparison membership, the active instance, the plot styles for every format, the specification masks, the plot strip settings and the window layout. Patterns are not stored; they are re-read from their files.

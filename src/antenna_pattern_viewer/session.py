@@ -69,6 +69,7 @@ def collect_session(main_window) -> Dict[str, Any]:
             'in_comparison': inst.instance_id in comparison_ids,
             'active': active is not None and inst.instance_id == active.instance_id,
             'notes': getattr(inst, 'notes', ''),
+            'derived_from': _jsonable(getattr(inst, 'derived_from', None)),
         })
 
     plot_widget = main_window.findChild(PlotWidget)
@@ -149,7 +150,9 @@ def restore_session(main_window, data: Dict[str, Any],
     for inst in list(model.get_all_instances()):
         model.remove_instance(inst.instance_id)
 
-    entries = [e for e in data.get('instances', []) if e.get('source_file')]
+    all_entries = list(data.get('instances', []))
+    derived_entries = [e for e in all_entries if e.get('derived_from')]
+    entries = [e for e in all_entries if e.get('source_file') and not e.get('derived_from')]
     missing = [e['source_file'] for e in entries if not Path(e['source_file']).exists()]
     entries = [e for e in entries if Path(e['source_file']).exists()]
 
@@ -169,6 +172,34 @@ def restore_session(main_window, data: Dict[str, Any],
             inst.notes = entry.get('notes', '')
             inst.view_params = dict(entry.get('view_params') or {})
             inst.processed_pattern = None
+            states[inst.instance_id] = dict(entry.get('processing_state') or {})
+            if entry.get('in_comparison'):
+                model.add_to_comparison(inst.instance_id)
+            if entry.get('active'):
+                active_id = inst.instance_id
+        # Derived patterns are rebuilt from their inputs by name, in order,
+        # so one derived from another derived one still works.
+        by_name = {inst.display_name: inst for inst in model.get_all_instances()}
+        for entry in derived_entries:
+            recipe = entry['derived_from']
+            a, b = by_name.get(recipe.get('a')), by_name.get(recipe.get('b'))
+            if a is None or b is None:
+                logger.warning("Derived pattern %s skipped: inputs not loaded", entry.get('display_name'))
+                continue
+            for src in (a, b):
+                state = states.get(src.instance_id)
+                if state is not None:
+                    src.processing_state = {k: tuple(v) if isinstance(v, list) else v
+                                            for k, v in state.items()}
+                    src.processed_pattern = None
+            try:
+                inst = model.add_derived_instance(recipe['op'], a.instance_id, b.instance_id,
+                                                  entry.get('display_name'))
+            except Exception as e:
+                logger.warning("Derived pattern %s could not be rebuilt: %s", entry.get('display_name'), e)
+                continue
+            by_name[inst.display_name] = inst
+            inst.view_params = dict(entry.get('view_params') or {})
             states[inst.instance_id] = dict(entry.get('processing_state') or {})
             if entry.get('in_comparison'):
                 model.add_to_comparison(inst.instance_id)

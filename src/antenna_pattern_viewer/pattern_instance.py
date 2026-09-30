@@ -41,6 +41,10 @@ class PatternInstance:
     # interpolation), so a session can re-read it without asking again.
     load_options: Dict[str, Any] = field(default_factory=dict)
 
+    # For a pattern derived from two others: {'op', 'a', 'b'} by display name,
+    # so a session can rebuild it once its inputs are loaded.
+    derived_from: Optional[Dict[str, Any]] = None
+
     # Additional metadata
     load_timestamp: Optional[float] = None
     notes: str = ""

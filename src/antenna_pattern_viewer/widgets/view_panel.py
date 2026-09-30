@@ -208,6 +208,13 @@ class ViewPanel(QWidget):
         self.comparison_status.setStyleSheet("color: gray; font-style: italic;")
         comparison_layout.addWidget(self.comparison_status)
 
+        # Pattern arithmetic: a new pattern from two loaded ones
+        self.combine_btn = QPushButton("Combine Patterns…")
+        self.combine_btn.setToolTip("Derive a new pattern: A / B (gain and phase difference), "
+                                    "|A / B|, A − B or A + B")
+        self.combine_btn.clicked.connect(self.combine_patterns)
+        comparison_layout.addWidget(self.combine_btn)
+
         layout.addWidget(comparison_group)
 
         # Add stretch
@@ -374,6 +381,28 @@ class ViewPanel(QWidget):
     def clear_all_phi(self):
         """Clear phi selection."""
         self.phi_list.clearSelection()
+
+    def combine_patterns(self, default_a=None, default_b=None):
+        """Open the arithmetic dialog and add the derived pattern."""
+        from PyQt6.QtWidgets import QMessageBox
+        from ..dialogs.arithmetic_dialog import ArithmeticDialog
+
+        instances = self.data_model.get_all_instances()
+        if len(instances) < 2:
+            QMessageBox.information(self, "Combine Patterns", "Load at least two patterns first.")
+            return None
+        active = self.data_model.get_active_instance()
+        dialog = ArithmeticDialog(instances, self,
+                                  default_a=default_a or (active.instance_id if active else None),
+                                  default_b=default_b)
+        if dialog.exec() != ArithmeticDialog.DialogCode.Accepted:
+            return None
+        op, a_id, b_id, name = dialog.choice()
+        try:
+            return self.data_model.add_derived_instance(op, a_id, b_id, name)
+        except Exception as e:
+            QMessageBox.warning(self, "Combine Patterns", str(e))
+            return None
 
     def on_plot_format_changed(self):
         """Handle plot format change."""

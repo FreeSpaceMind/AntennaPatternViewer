@@ -229,6 +229,14 @@ class PatternListWidget(QWidget):
 
         item.setFont(font)
 
+    def _combine(self, instance_id: str):
+        """Open the arithmetic dialog with this pattern as A."""
+        from .view_panel import ViewPanel
+
+        panel = self.window().findChild(ViewPanel) if self.window() is not None else None
+        if panel is not None:
+            panel.combine_patterns(default_a=instance_id)
+
     def on_item_clicked(self, item: QListWidgetItem):
         """Handle item click - set as active."""
         instance_id = item.data(Qt.ItemDataRole.UserRole)
@@ -325,6 +333,9 @@ class PatternListWidget(QWidget):
         menu.addSeparator()
 
         # Unload action
+        if len(self.data_model.get_all_instances()) >= 2:
+            combine_action = menu.addAction("Combine with…")
+            combine_action.triggered.connect(lambda: self._combine(instance_id))
         unload_action = menu.addAction("Unload Pattern")
         unload_action.triggered.connect(
             lambda: self.data_model.remove_instance(instance_id)
