@@ -12,6 +12,7 @@ from matplotlib import cm, colors as mcolors
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QVBoxLayout,
                              QWidget)
 
@@ -21,6 +22,9 @@ from .figure_tools import FigureTools
 logger = logging.getLogger(__name__)
 
 COLORMAPS = ['turbo', 'viridis', 'plasma', 'jet', 'coolwarm', 'gray']
+
+# A surface finer than this is slow to draw and no sharper on screen.
+MAX_FACETS = 120
 
 
 def pattern_surface(pattern, frequency=None, component='e_co', value_type='gain',
@@ -67,11 +71,18 @@ def pattern_surface(pattern, frequency=None, component='e_co', value_type='gain'
     return x, y, z, values, color_range
 
 
+def surface_stride(shape, max_facets: int = MAX_FACETS) -> int:
+    """The stride that keeps the drawn surface at or under ``max_facets`` per axis."""
+    return max(1, int(np.ceil(max(shape) / float(max_facets))))
+
+
 def draw_pattern_surface(ax, pattern, frequency=None, component='e_co', value_type='gain',
-                         dynamic_range=40.0, cmap='turbo', unwrap_phase=True, stride=1):
+                         dynamic_range=40.0, cmap='turbo', unwrap_phase=True, stride=None):
     """Draw the surface on a 3D axes and return (surface, mappable)."""
     x, y, z, values, (vmin, vmax) = pattern_surface(pattern, frequency, component, value_type,
                                                     dynamic_range, unwrap_phase)
+    if stride is None:
+        stride = surface_stride(values.shape)
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     colormap = cm.get_cmap(cmap) if hasattr(cm, 'get_cmap') else __import__('matplotlib').colormaps[cmap]
     facecolors = colormap(norm(np.nan_to_num(values, nan=vmin)))
@@ -97,6 +108,14 @@ class Plot3DWidget(QWidget):
         super().__init__(parent)
         self.data_model = data_model
         self.current_colorbar = None
+        # Redraws are deferred to one timer tick and skipped while the view
+        # is hidden (its dock closed or behind another tab); a hidden view
+        # marks itself stale and draws when it is shown.
+        self._stale = False
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(60)
+        self._timer.timeout.connect(self._redraw_if_visible)
         self.setup_ui()
         self.connect_signals()
 
@@ -135,10 +154,27 @@ class Plot3DWidget(QWidget):
     def connect_signals(self):
         self.data_model.pattern_loaded.connect(self.on_pattern_changed)
         self.data_model.pattern_modified.connect(self.on_pattern_changed)
-        self.data_model.view_parameters_changed.connect(lambda _p: self.update_plot())
+        self.data_model.view_parameters_changed.connect(lambda _p: self.request_update())
 
     def on_pattern_changed(self, _pattern):
+        self.request_update()
+
+    def request_update(self):
+        """Schedule a redraw; several requests in a row draw once."""
+        self._stale = True
+        self._timer.start()
+
+    def _redraw_if_visible(self):
+        if not self._stale:
+            return
+        if not self.isVisible():
+            return                      # drawn on showEvent instead
         self.update_plot()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._stale:
+            self._timer.start()
 
     # ------------------------------------------------------------- drawing
     def _selection(self):
@@ -152,6 +188,7 @@ class Plot3DWidget(QWidget):
                 bool(params.get('unwrap_phase', True)))
 
     def update_plot(self):
+        self._stale = False
         pattern = self.data_model.pattern
         self.figure.clear()
         self.current_colorbar = None

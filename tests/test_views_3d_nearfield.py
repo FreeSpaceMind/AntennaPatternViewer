@@ -37,6 +37,15 @@ class TestSurface:
         assert rng == (-180.0, 180.0)
 
 
+def settle(qapp, seconds=0.2):
+    """Let the 3D view's coalescing timer fire."""
+    import time
+    end = time.time() + seconds
+    while time.time() < end:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+
 class TestPlot3DWidget:
     def test_draws_and_follows_the_view(self, qapp, model):
         from antenna_pattern_viewer.widgets.plot_3d_widget import Plot3DWidget
@@ -44,14 +53,14 @@ class TestPlot3DWidget:
         widget = Plot3DWidget(model)
         widget.show()
         model.set_pattern(make_pattern(freqs=np.array([8e9, 10e9])))
-        qapp.processEvents()
+        settle(qapp)
         ax = widget.figure.axes[0]
         assert ax.name == '3d' and ax.collections            # a surface was drawn
         assert widget.current_colorbar is not None
         assert '8000.0 MHz' in ax.get_title()
 
         model.update_view_params({'selected_frequencies': [10e9], 'component': 'e_cx'})
-        qapp.processEvents()
+        settle(qapp)
         assert '10000.0 MHz' in widget.figure.axes[0].get_title()
         assert 'e_cx' in widget.figure.axes[0].get_title()
 
@@ -61,8 +70,9 @@ class TestPlot3DWidget:
         from antenna_pattern_viewer.widgets.plot_3d_widget import Plot3DWidget
 
         widget = Plot3DWidget(model)
+        widget.show()
         model.set_pattern(make_pattern())
-        widget.range_spin.setValue(20.0)
+        widget.range_spin.setValue(20.0)          # the controls redraw at once
         assert widget.figure.axes[0].get_xlim()[1] == pytest.approx(20.0, abs=1e-6)
         widget.tools.set_style(PlotStyle(title='My horn', colorbar_label='dBi custom'))
         ax = widget.figure.axes[0]
@@ -125,3 +135,42 @@ class TestFigureTools:
         assert again.style.title == 'remembered'
         other = FigureTools(owner, Figure(), None, 'another_view', 'Other', lambda: None)
         assert other.style.title is None
+
+
+class TestPlot3DPerformance:
+    def test_hidden_view_does_not_draw_until_shown(self, qapp, model):
+        from antenna_pattern_viewer.widgets.plot_3d_widget import Plot3DWidget
+
+        widget = Plot3DWidget(model)                 # never shown
+        draws = []
+        original = widget.update_plot
+        widget.update_plot = lambda: (draws.append(1), original())[1]
+        model.set_pattern(make_pattern(freqs=np.array([8e9, 10e9])))
+        for f in (8e9, 10e9, 8e9):
+            model.update_view_params({'selected_frequencies': [f]})
+        settle(qapp)
+        assert draws == [] and widget._stale
+        widget.show()
+        settle(qapp)
+        assert draws == [1] and not widget._stale
+
+    def test_bursts_coalesce_into_one_draw(self, qapp, model):
+        from antenna_pattern_viewer.widgets.plot_3d_widget import Plot3DWidget
+
+        widget = Plot3DWidget(model)
+        widget.show()
+        model.set_pattern(make_pattern())
+        settle(qapp)
+        draws = []
+        original = widget.update_plot
+        widget.update_plot = lambda: (draws.append(1), original())[1]
+        for f in (8e9, 10e9, 8e9, 10e9):
+            model.update_view_params({'selected_frequencies': [f]})
+        settle(qapp)
+        assert draws == [1]
+
+    def test_surface_resolution_is_capped(self):
+        from antenna_pattern_viewer.widgets.plot_3d_widget import MAX_FACETS, surface_stride
+
+        assert surface_stride((181, 361)) == 4 and surface_stride((60, 60)) == 1
+        assert max(181, 361) / surface_stride((181, 361)) <= MAX_FACETS
