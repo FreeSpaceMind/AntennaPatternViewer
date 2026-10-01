@@ -28,7 +28,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "farfield-spherical>=1.0.0",
+    "farfield-spherical>=1.1.0",  # calculate_spherical_modes(r0=...)
     "PyQt6>=6.4.0",
     "matplotlib>=3.5.0",
     "numpy>=1.21.0",

@@ -1,7 +1,7 @@
 """
 2D plot widget for antenna patterns.
 """
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QMessageBox
 from PyQt6.QtCore import pyqtSignal
 
 from antenna_pattern_viewer.widgets.plot_widget import PlotWidget

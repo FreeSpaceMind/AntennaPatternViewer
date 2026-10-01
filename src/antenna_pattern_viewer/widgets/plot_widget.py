@@ -9,15 +9,12 @@ matplotlib.use('QtAgg')  # Use Qt5Agg backend for PyQt6 compatibility
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-from typing import Tuple, Optional, Any
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox,
                              QLineEdit, QLabel, QFileDialog, QMessageBox)
 from pathlib import Path
-from PyQt6.QtCore import pyqtSignal
 
-from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_multiple_patterns
+from ..plotting import plot_multiple_patterns
 from ..plot_style import PlotStyle, apply_style, cycle_colors, series_labels
 from ..pattern_markers import (MarkerConfig, analyze_cut, custom_values, describe, draw_markers,
                                levels_for)
@@ -286,7 +283,6 @@ class PlotWidget(QWidget):
             statistic_type: Type of statistic ('mean', 'median', 'rms', 'percentile', 'std')
             percentile_range: Tuple of (lower, upper) percentiles
         """
-        import numpy as np
         from ..plotting import plot_pattern_cut, plot_pattern_2d_polar, plot_pattern_statistics
         
         # Track if plot format is changing (for axis limits handling)

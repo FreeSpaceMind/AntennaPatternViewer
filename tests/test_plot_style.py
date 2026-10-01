@@ -171,7 +171,6 @@ class TestWidget:
         assert after != before
 
     def test_styles_are_per_format_and_persist(self, widget, qapp, tmp_path, monkeypatch):
-        from PyQt6.QtCore import QSettings
         from antenna_pattern_viewer.plot_style import PlotStyle
         from antenna_pattern_viewer.widgets.plot_widget import PlotWidget
 

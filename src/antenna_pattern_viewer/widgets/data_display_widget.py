@@ -1,8 +1,12 @@
 """
 Data display widget showing numerical information and statistics.
 """
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                              QTableWidget, QGroupBox)
+from PyQt6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+    QGroupBox,
+)
 from PyQt6.QtCore import Qt
 
 class DataDisplayWidget(QWidget):

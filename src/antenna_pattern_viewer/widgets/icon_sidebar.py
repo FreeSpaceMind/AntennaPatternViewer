@@ -22,8 +22,7 @@ Usage:
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QButtonGroup, QSizePolicy
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import pyqtSignal
 from typing import List, Dict, Optional
 
 

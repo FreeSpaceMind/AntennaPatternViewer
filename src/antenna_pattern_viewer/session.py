@@ -5,12 +5,15 @@ A session is JSON holding the loaded files with the options they were read
 with, each instance's processing state, view settings and comparison
 membership, the active instance, the plot styles, the specification masks,
 the plot strip settings and the window geometry. Patterns themselves are
-not stored; they are re-read from their files on load.
+not stored; they are re-read from their files on load. File paths are
+stored both absolute and relative to the session file, so a folder holding
+the session and its files can be moved whole.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -89,16 +92,66 @@ def collect_session(main_window) -> Dict[str, Any]:
     return data
 
 
+def relative_source(source_file, session_path) -> Optional[str]:
+    """
+    ``source_file`` relative to the session file's directory, as a POSIX
+    string, or None when no relative path exists (another drive on Windows).
+    """
+    try:
+        source = Path(source_file).resolve()
+        base = Path(session_path).resolve().parent
+        return Path(os.path.relpath(source, base)).as_posix()
+    except (ValueError, OSError):
+        return None
+
+
+def resolve_source(entry: Dict[str, Any], session_path) -> Optional[str]:
+    """
+    The path to load an instance entry from: the relative path if it exists
+    beside the session file, else the absolute path if it exists, else
+    whichever was recorded (so the caller can report it missing).
+    """
+    relative = entry.get('relative_path')
+    absolute = entry.get('source_file')
+    if relative:
+        candidate = (Path(session_path).resolve().parent / relative)
+        if candidate.exists():
+            return str(candidate)
+    if absolute and Path(absolute).exists():
+        return absolute
+    if relative:
+        return str(Path(session_path).resolve().parent / relative)
+    return absolute
+
+
 def write_session(path, data: Dict[str, Any]) -> Path:
+    """
+    Write the session. Besides the absolute ``source_file`` each instance
+    gets a ``relative_path`` from the session file's directory, so a folder
+    holding the session and its pattern files can be moved or shared whole.
+    """
     path = Path(path)
     if path.suffix.lower() != SESSION_SUFFIX:
         path = path.with_suffix(SESSION_SUFFIX)
+    data = dict(data)
+    instances = []
+    for entry in data.get('instances', []):
+        entry = dict(entry)
+        if entry.get('source_file'):
+            entry['relative_path'] = relative_source(entry['source_file'], path)
+        instances.append(entry)
+    data['instances'] = instances
     with open(path, 'w', encoding='utf-8') as handle:
         json.dump(data, handle, indent=2)
     return path
 
 
 def read_session(path) -> Dict[str, Any]:
+    """
+    Read a session. Each instance's ``source_file`` is resolved against
+    the session file's location (see ``resolve_source``), so the returned
+    data can be restored as is.
+    """
     with open(path, 'r', encoding='utf-8') as handle:
         data = json.load(handle)
     if not isinstance(data, dict) or 'instances' not in data:
@@ -106,6 +159,9 @@ def read_session(path) -> Dict[str, Any]:
     version = int(data.get('version', 0))
     if version > SESSION_VERSION:
         raise ValueError(f"Session version {version} is newer than this viewer supports")
+    for entry in data['instances']:
+        if isinstance(entry, dict) and (entry.get('source_file') or entry.get('relative_path')):
+            entry['source_file'] = resolve_source(entry, path)
     return data
 
 

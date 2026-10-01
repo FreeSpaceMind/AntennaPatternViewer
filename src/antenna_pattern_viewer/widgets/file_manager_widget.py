@@ -24,14 +24,11 @@ import time
 import os
 
 from farfield_spherical import (
-    FarFieldSpherical,
     load_pattern_npz,
     read_atams,
     read_cut,
     read_ffd,
-    scan_sph_frequencies,
 )
-from ..dialogs.sph_frequency_dialog import SphFrequencyDialog
 from ..pattern_instance import PatternInstance
 
 import logging

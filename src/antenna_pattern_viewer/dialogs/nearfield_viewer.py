@@ -5,7 +5,6 @@ File: src/antenna_pattern/gui/nearfield_viewer.py
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QComboBox, 
                               QLabel, QPushButton, QSizePolicy)
-from PyQt6.QtCore import Qt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -81,7 +80,7 @@ class NearFieldViewer(QDialog):
         field_key = self.get_field_data_key(component_display)
         
         if field_key is None or field_key not in self.nf_data:
-            ax.text(0.5, 0.5, f'Field component not available',
+            ax.text(0.5, 0.5, 'Field component not available',
                 ha='center', va='center', transform=ax.transAxes)
             self.canvas.draw()
             return
@@ -117,7 +116,7 @@ class NearFieldViewer(QDialog):
             ax.set_ylabel('Theta (degrees)', fontsize=11)
             ax.set_title(f'Near Field on Sphere - {component_display} - {label}', fontsize=12)
             
-            cbar = self.figure.colorbar(im, ax=ax, label=label)
+            self.figure.colorbar(im, ax=ax, label=label)
         else:
             # Planar surface plot
             x = self.nf_data['x']
@@ -133,7 +132,7 @@ class NearFieldViewer(QDialog):
             ax.set_title(f'Near Field on Plane - {component_display} - {label}', fontsize=12)
             ax.set_aspect('equal')
             
-            cbar = self.figure.colorbar(im, ax=ax, label=label)
+            self.figure.colorbar(im, ax=ax, label=label)
         
         ax.grid(True, alpha=0.3)
         self.figure.tight_layout()

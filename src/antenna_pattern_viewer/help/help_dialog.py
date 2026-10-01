@@ -11,8 +11,7 @@ from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QLineEdit, QPushButton, QSplitter, QLabel, QWidget, QFrame,
-    QSizePolicy, QTextBrowser
+    QLineEdit, QPushButton, QSplitter, QLabel, QWidget, QFrame, QTextBrowser
 )
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QFont, QAction, QKeySequence

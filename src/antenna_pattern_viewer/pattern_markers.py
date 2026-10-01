@@ -19,7 +19,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict, fields
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 
 from farfield_spherical.metrics import CutMetrics, analyze_cut as _analyze_cut, value_at
 

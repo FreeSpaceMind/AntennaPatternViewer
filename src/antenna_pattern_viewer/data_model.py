@@ -2,7 +2,7 @@
 Shared data model for antenna pattern viewer GUI.
 """
 from PyQt6.QtCore import QObject, pyqtSignal
-from typing import Optional, Dict, Any, List, Set
+from typing import Optional, Dict, Any, List
 from antenna_pattern_viewer.pattern_instance import PatternInstance
 
 import logging

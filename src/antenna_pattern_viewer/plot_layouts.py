@@ -16,7 +16,7 @@ the same wherever it appears.
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional
 
 import numpy as np
 from matplotlib.figure import Figure

@@ -4,6 +4,7 @@ application window and file loader.
 """
 import json
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -178,3 +179,66 @@ class TestFileFormat:
         model.set_processing_state({'mars': [0.1, 2], 'bogus': 1})
         assert model._processing_state['mars'] == (0.1, 2)
         assert 'bogus' not in model._processing_state
+
+
+class TestRelativePaths:
+    def test_files_are_found_after_the_folder_moves(self, qapp, tmp_path, monkeypatch):
+        """A session and its files moved together still load."""
+        import shutil
+        from antenna_pattern_viewer.session import read_session, relative_source, write_session
+
+        folder = tmp_path / 'project'
+        (folder / 'data').mkdir(parents=True)
+        from farfield_spherical import write_ffd
+        write_ffd(make_pattern(freqs=np.array([8e9, 10e9])), folder / 'data' / 'a.ffd')
+        data = {'version': 1, 'instances': [{'source_file': str(folder / 'data' / 'a.ffd'),
+                                             'display_name': 'a.ffd'}]}
+        path = write_session(folder / 'one', data)
+        raw = json.loads(path.read_text())
+        assert raw['instances'][0]['relative_path'] == 'data/a.ffd'
+        assert raw['instances'][0]['source_file'] == str(folder / 'data' / 'a.ffd')
+
+        moved = tmp_path / 'elsewhere'
+        shutil.move(str(folder), str(moved))
+        loaded = read_session(moved / 'one.apvsession')
+        assert loaded['instances'][0]['source_file'] == str(moved / 'data' / 'a.ffd')
+        assert relative_source(moved / 'data' / 'a.ffd', moved / 'one.apvsession') == 'data/a.ffd'
+
+    def test_absolute_path_wins_when_the_relative_one_is_gone(self, tmp_path):
+        from antenna_pattern_viewer.session import resolve_source
+
+        elsewhere = tmp_path / 'abs' / 'a.ffd'
+        elsewhere.parent.mkdir()
+        elsewhere.write_text('x')
+        session = tmp_path / 's.apvsession'
+        entry = {'source_file': str(elsewhere), 'relative_path': 'missing/a.ffd'}
+        assert resolve_source(entry, session) == str(elsewhere)
+        # neither exists: the relative one is reported, next to the session
+        entry = {'source_file': str(tmp_path / 'gone.ffd'), 'relative_path': 'also/gone.ffd'}
+        assert resolve_source(entry, session) == str(tmp_path / 'also' / 'gone.ffd')
+        # an old session without relative paths
+        assert resolve_source({'source_file': str(elsewhere)}, session) == str(elsewhere)
+
+    def test_restore_uses_the_resolved_paths(self, window, qapp, files, tmp_path):
+        import shutil
+        from antenna_pattern_viewer.session import collect_session, read_session, restore_session, write_session
+
+        a, b = files
+        load(window, qapp, [a, b])
+        folder = tmp_path / 'bundle'
+        folder.mkdir()
+        shutil.copy(a, folder / a.name)
+        shutil.copy(b, folder / b.name)
+        # pretend the session was saved next to the files, then move everything
+        model = window.data_model
+        for inst in model.get_all_instances():
+            inst.source_file = folder / Path(inst.source_file).name
+        write_session(folder / 'bundle', collect_session(window))
+        moved = tmp_path / 'moved'
+        shutil.move(str(folder), str(moved))
+
+        finished = []
+        restore_session(window, read_session(moved / 'bundle.apvsession'), on_done=finished.append)
+        wait_until(qapp, lambda: finished)
+        assert finished[0] == []
+        assert sorted(Path(i.source_file).parent.name for i in window.data_model.get_all_instances()) == ['moved', 'moved']

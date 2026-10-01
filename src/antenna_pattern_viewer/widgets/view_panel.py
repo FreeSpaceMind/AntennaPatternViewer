@@ -3,7 +3,6 @@ View panel - Controls for visualizing pattern data.
 
 Standalone panel for the icon sidebar navigation (no collapsible groups).
 """
-import numpy as np
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QListWidget, QComboBox, QCheckBox, QLabel,

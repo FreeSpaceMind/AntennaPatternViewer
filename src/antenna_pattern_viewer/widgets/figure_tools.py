@@ -9,7 +9,7 @@ view in QSettings, and a tight layout engine enforced on every draw.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from typing import Callable
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QMessageBox, QPushButton

@@ -47,7 +47,7 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
 
-      - name: Lint for errors and undefined names
+      - name: Lint (syntax errors and every pyflakes check)
         run: |
           pip install flake8
-          python -m flake8 src/ tests/ --select=E9,F63,F7,F82,F821 --show-source
+          python -m flake8 src/ tests/ --select=E9,F --show-source

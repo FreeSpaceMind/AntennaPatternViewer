@@ -5,7 +5,7 @@ instance lifecycle. No display or data files are required.
 import numpy as np
 import pytest
 
-from antenna_pattern_viewer.data_model import PatternDataModel, default_processing_state
+from antenna_pattern_viewer.data_model import default_processing_state
 from .conftest import make_pattern, FREQS
 
 

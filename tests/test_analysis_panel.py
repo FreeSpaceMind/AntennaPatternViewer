@@ -52,7 +52,6 @@ class TestSweFrequencySelection:
 
 class TestSweWorkerHandoff:
     def test_worker_receives_the_checked_frequencies_and_radius(self, panel, monkeypatch):
-        from antenna_pattern_viewer.widgets import analysis_panel as module
 
         captured = {}
 
@@ -90,3 +89,20 @@ class TestSweWorkerHandoff:
         worker = SWEWorker(make_pattern(), [8e9, 10e9], r=0.1)
         assert worker.frequencies == [8e9, 10e9]
         assert worker.r == pytest.approx(0.1)
+
+
+class TestSweWorkerCall:
+    def test_worker_forwards_the_radius_as_r0(self, qapp):
+        """The library forwards r0 to SWE; the worker calls it once, with nothing else."""
+        from antenna_pattern_viewer.workers.swe_worker import SWEWorker
+
+        calls = []
+
+        class FakePattern:
+            def calculate_spherical_modes(self, **kwargs):
+                calls.append(kwargs)
+                return object()
+
+        worker = SWEWorker(FakePattern(), [8e9, 9e9], r=0.3, nmax=12, mmax=None)
+        worker._calculate_expansion(9e9)
+        assert calls == [{'frequency': 9e9, 'nmax': 12, 'mmax': None, 'r0': 0.3}]

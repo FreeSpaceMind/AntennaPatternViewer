@@ -405,7 +405,6 @@ def plot_multiple_patterns(
     """
     import matplotlib.pyplot as plt
     import numpy as np
-    import matplotlib.lines as mlines
     
     # Create new figure and axes if not provided
     if ax is None:
@@ -723,8 +722,6 @@ def plot_pattern_difference(
 
     # Plot for each phi angle
     for i, (phi1_idx, phi2_idx) in enumerate(zip(phi1_indices, phi2_indices)):
-        phi_val = selected_phi[i]
-        
         # Get data for this phi angle
         data1 = values1[:, phi1_idx]
         data2 = values2[:, phi2_idx]
@@ -988,7 +985,7 @@ def plot_pattern_statistics(
         ax.plot(theta, mean_data, color=stat_color, linewidth=2, 
                label=f"Mean across {dimension_label}")
         ax.fill_between(theta, mean_data - std_data, mean_data + std_data, alpha=range_alpha, 
-                       color=stat_color, label=f"±1 Std Dev")
+                       color=stat_color, label="±1 Std Dev")
         stat_label = 'Mean ±1 Std Dev'
     
     # Show min/max range if requested
@@ -1070,7 +1067,6 @@ def add_spec_mask(
     Notes:
         - For a proper envelope mask with segments, provide all corner points in the mask
     """
-    from scipy import interpolate
     
     # Convert inputs to numpy arrays
     x_points = np.asarray(x_points)
