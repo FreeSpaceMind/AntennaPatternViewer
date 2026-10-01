@@ -49,11 +49,10 @@ class AntennaPatternWidget(QMainWindow):
 
         # Restore the window geometry and dock arrangement saved on last exit
         self.load_settings()
+        self._reveal_3d_dock_once()
 
         # After the restore, because restoreState() brings back whatever was
-        # visible last time. The 3D view is still a "Coming Soon" placeholder,
         # so it is not offered as a tab.
-        self.plot_3d_dock.setVisible(False)
 
     def setup_docks(self):
         """Create and arrange dock widgets with icon sidebar navigation."""
@@ -99,9 +98,7 @@ class AntennaPatternWidget(QMainWindow):
 
         # Tabify the others on top of it
         self.tabifyDockWidget(self.plot_2d_dock, self.plot_3d_dock)
-        # The 3D view is a placeholder ("Coming Soon"), so it is not offered as
         # a tab until it is implemented.
-        self.plot_3d_dock.setVisible(False)
         self.tabifyDockWidget(self.plot_2d_dock, self.data_dock)
         self.tabifyDockWidget(self.plot_2d_dock, self.plot_nearfield_dock)
 
@@ -127,6 +124,17 @@ class AntennaPatternWidget(QMainWindow):
         load_session_action.setStatusTip("Replace the workspace with a saved session")
         load_session_action.triggered.connect(self.load_session)
         file_menu.addAction(load_session_action)
+
+        view_menu = menubar.addMenu("&View")
+        for dock in (self.left_panel_dock, self.plot_2d_dock, self.plot_3d_dock,
+                     self.data_dock, self.plot_nearfield_dock):
+            view_menu.addAction(dock.toggleViewAction())
+        view_menu.addSeparator()
+        reset_action = QAction("&Reset Layout", self)
+        reset_action.setStatusTip("Put every panel back where it starts")
+        reset_action.triggered.connect(self.reset_layout_and_settings
+                                       if hasattr(self, 'reset_layout_and_settings') else self.reset_layout)
+        view_menu.addAction(reset_action)
 
         help_menu = menubar.addMenu("&Help")
 
@@ -188,7 +196,6 @@ class AntennaPatternWidget(QMainWindow):
         self.left_panel_dock.setVisible(True)
         self.plot_2d_dock.setVisible(True)
         # The 3D view is not implemented yet, so it is not offered as a tab.
-        self.plot_3d_dock.setVisible(False)
         self.data_dock.setVisible(True)
         self.plot_nearfield_dock.setVisible(True)
 
@@ -215,6 +222,24 @@ class AntennaPatternWidget(QMainWindow):
         """Handle near field calculation completion."""
         self.plot_nearfield.plot_near_field(near_field_data)
         self.plot_nearfield_dock.raise_()
+
+    def _reveal_3d_dock_once(self):
+        """
+        Show the 3D view tab the first time this version runs.
+
+        Earlier versions hid the 3D dock (it was a placeholder) and saved the
+        window state with it hidden, so restoreState() keeps hiding it for
+        anyone upgrading. It is shown once and tabbed next to the 2D view;
+        closing it afterwards is remembered like any other dock.
+        """
+        settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
+        if settings.value("layout/3d_dock_revealed", False, type=bool):
+            return
+        self.plot_3d_dock.setVisible(True)
+        if self.plot_3d_dock not in self.tabifiedDockWidgets(self.plot_2d_dock):
+            self.tabifyDockWidget(self.plot_2d_dock, self.plot_3d_dock)
+        self.plot_2d_dock.raise_()
+        settings.setValue("layout/3d_dock_revealed", True)
 
     def save_settings(self):
         """Save window geometry and dock states."""

@@ -765,7 +765,7 @@ The 2D dock's export opens a small dialog: file and format (PNG, PDF, SVG, JPEG,
 
 ### 3D Plot
 
-The far-field pattern as a surface: the radius is the value above a floor and the colour is the value, for the first selected frequency and the component and value type chosen in the View panel. For gain the floor is the peak minus **Dynamic range** (default 40 dB), so sidelobes that far down reach the origin. A central-format pattern is closed into the full sided sphere and the φ seam is closed, so the surface has no gap. **Colormap** picks the colour scale. **Style…** opens the Plot Style dialog for this view (its own style, remembered between sessions) and **Export…** the figure export dialog. The view follows processing changes and the View panel's selection.
+The 3D view is a tab next to the 2D view in the centre dock area; if the tab is not there, open it from the **View** menu, which lists every panel and offers **Reset Layout**. The far-field pattern as a surface: the radius is the value above a floor and the colour is the value, for the first selected frequency and the component and value type chosen in the View panel. For gain the floor is the peak minus **Dynamic range** (default 40 dB), so sidelobes that far down reach the origin. A central-format pattern is closed into the full sided sphere and the φ seam is closed, so the surface has no gap. **Colormap** picks the colour scale. **Style…** opens the Plot Style dialog for this view (its own style, remembered between sessions) and **Export…** the figure export dialog. The view follows processing changes and the View panel's selection.
 
 ### Near Field
 
