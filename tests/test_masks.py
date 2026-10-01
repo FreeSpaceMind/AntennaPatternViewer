@@ -143,10 +143,10 @@ class TestInWidget:
         widget.set_masks([SpecMask(name='env', points=[(0, peak + 1), (180, peak + 1)]),
                           SpecMask(name='tight', points=[(0, peak + 1), (5, peak - 40), (180, peak - 40)])])
         qapp.processEvents()
-        assert len(widget._mask_artists) == 4
+        assert len(widget.overlays.mask_artists) == 4
         assert len(widget.figure.axes[0].get_lines()) == lines
         assert len(widget.get_plotted_data()[2]) == lines
-        text = widget.readout_label.text()
+        text = widget.overlays.readout.text()
         assert "Mask 'env' passed" in text and "Mask 'tight' violated" in text
         legend = [t.get_text() for t in widget.figure.axes[0].get_legend().get_texts()]
         assert 'env (max)' in legend and 'tight (max)' in legend
@@ -157,9 +157,9 @@ class TestInWidget:
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.set_masks([SpecMask(points=[(0, 50), (180, 50)])])
         widget.update_plot(pattern=make_pattern(beam_deg=10.0), **COMMON)
-        assert widget._mask_artists and widget._mask_artists[0].axes is widget.figure.axes[0]
+        assert widget.overlays.mask_artists and widget.overlays.mask_artists[0].axes is widget.figure.axes[0]
         widget.set_masks([])
-        assert widget._mask_artists == [] and not widget.readout_label.isVisible()
+        assert widget.overlays.mask_artists == [] and not widget.overlays.readout.isVisible()
 
     def test_masks_on_every_small_multiple_and_not_on_polar(self, widget):
         from antenna_pattern_viewer.spec_mask import SpecMask
@@ -167,9 +167,9 @@ class TestInWidget:
         widget.update_plot(pattern=make_pattern(freqs=np.array([8e9, 10e9])),
                            **dict(COMMON, plot_format='small_multiples', frequencies=[8e9, 10e9]))
         widget.set_masks([SpecMask(points=[(0, 50), (180, 50)])])
-        assert len(widget._mask_artists) == 4
+        assert len(widget.overlays.mask_artists) == 4
         widget.update_plot(pattern=make_pattern(), **dict(COMMON, plot_format='polar_cut'))
-        assert widget._mask_artists == [] and not widget.masks_btn.isVisible()
+        assert widget.overlays.mask_artists == [] and not widget.masks_btn.isVisible()
 
     def test_dialog_round_trip(self, widget, qapp):
         from antenna_pattern_viewer.spec_mask import SpecMask
@@ -177,7 +177,7 @@ class TestInWidget:
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.set_masks([SpecMask(name='one', points=[(0, 1), (10, 2)])])
         widget.open_mask_dialog()
-        dialog = widget.mask_dialog
+        dialog = widget.overlays.mask_dialog
         assert dialog.table.rowCount() == 1
         dialog.table.item(0, 0).setText('renamed')
         qapp.processEvents()
@@ -185,4 +185,4 @@ class TestInWidget:
         from PyQt6.QtCore import Qt
         dialog.table.item(0, 5).setCheckState(Qt.CheckState.Unchecked)
         qapp.processEvents()
-        assert not widget.masks[0].visible and widget._mask_artists == []
+        assert not widget.masks[0].visible and widget.overlays.mask_artists == []

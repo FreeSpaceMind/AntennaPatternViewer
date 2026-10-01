@@ -181,8 +181,8 @@ class TestFormatsInWidget:
                            **base(plot_format='small_multiples', phi_angles=[0.0], show_cross_pol=False))
         widget.markers_check.setChecked(True)
         qapp.processEvents()
-        assert len(widget._marker_text.splitlines()) == 2
-        assert widget._marker_text.startswith('[8000.0 MHz]')
+        assert len(widget.overlays.marker_text.splitlines()) == 2
+        assert widget.overlays.marker_text.startswith('[8000.0 MHz]')
 
     def test_style_applies_to_every_panel(self, widget):
         from antenna_pattern_viewer.plot_style import PlotStyle

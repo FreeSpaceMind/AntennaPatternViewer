@@ -75,7 +75,7 @@ class TestPerPatternInComparison:
             disabled=[]))
         widget.markers_check.setChecked(True)
         qapp.processEvents()
-        lines = widget._marker_text.splitlines()
+        lines = widget.overlays.marker_text.splitlines()
         # a: two cuts, both marked, the second named by its pattern
         assert lines[0].startswith('a: peak') and 'HPBW' in lines[0]
         assert lines[1].startswith('a (cut 2): peak')
@@ -91,15 +91,15 @@ class TestPerPatternInComparison:
         widget.set_marker_config(MarkerConfig(disabled=['a']))
         widget.markers_check.setChecked(True)
         qapp.processEvents()
-        assert [l.split(':')[0] for l in widget._marker_text.splitlines()] == ['b']
+        assert [l.split(':')[0] for l in widget.overlays.marker_text.splitlines()] == ['b']
 
     def test_markers_survive_the_dialog_closing_and_a_replot(self, widget, qapp):
         widget.update_plot(pattern=make_pattern(), pattern_name='p', **COMMON)
         widget.open_markers_dialog()
         assert widget.markers_check.isChecked()          # opening the dialog turns markers on
-        widget.markers_dialog.hide()
+        widget.overlays.markers_dialog.hide()
         widget.update_plot(pattern=make_pattern(beam_deg=10.0), pattern_name='p', **COMMON)
-        assert widget._marker_artists
+        assert widget.overlays.marker_artists
 
 
 class TestDialog:
@@ -108,7 +108,7 @@ class TestDialog:
                                       frequencies=[8e9], phi_angles=[0.0], value_type='gain',
                                       show_cross_pol=False)
         widget.open_markers_dialog()
-        d = widget.markers_dialog
+        d = widget.overlays.markers_dialog
         assert [d.target_combo.itemText(i) for i in range(d.target_combo.count())][1:] == ['a', 'b']
 
         d.levels_edit.setText('3, 10')

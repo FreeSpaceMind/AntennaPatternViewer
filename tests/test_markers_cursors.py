@@ -82,31 +82,31 @@ class TestMarkersInWidget:
         lines = len(widget.figure.axes[0].get_lines())
         widget.markers_check.setChecked(True)
         qapp.processEvents()
-        assert widget._marker_artists                      # something was drawn
+        assert widget.overlays.marker_artists                      # something was drawn
         assert len(widget.figure.axes[0].get_lines()) == lines
         assert len(widget.get_plotted_data()[2]) == lines
-        text = widget.readout_label.text()
-        assert widget.readout_label.isVisible()
+        text = widget.overlays.readout.text()
+        assert widget.overlays.readout.isVisible()
         assert 'φ=0.0°: peak' in text and 'cross' not in text
 
     def test_markers_survive_a_replot_and_clear_when_off(self, widget, qapp):
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.markers_check.setChecked(True)
         widget.update_plot(pattern=make_pattern(beam_deg=10.0), **COMMON)
-        assert widget._marker_artists and widget._marker_artists[0].axes is widget.figure.axes[0]
+        assert widget.overlays.marker_artists and widget.overlays.marker_artists[0].axes is widget.figure.axes[0]
         widget.markers_check.setChecked(False)
         qapp.processEvents()
-        assert widget._marker_artists == [] and not widget.readout_label.isVisible()
+        assert widget.overlays.marker_artists == [] and not widget.overlays.readout.isVisible()
 
     def test_not_on_phase_or_polar(self, widget, qapp):
         widget.update_plot(pattern=make_pattern(), **dict(COMMON, value_type='phase'))
         widget.markers_check.setChecked(True)
         qapp.processEvents()
-        assert widget._marker_artists == []
+        assert widget.overlays.marker_artists == []
         widget.update_plot(pattern=make_pattern(), frequencies=[8e9], phi_angles=[0.0], value_type='gain',
                            show_cross_pol=False, unwrap_phase=True, plot_format='2d_polar',
                            component='e_co', pattern_key='k')
-        assert not widget.markers_check.isVisible() and widget._marker_artists == []
+        assert not widget.markers_check.isVisible() and widget.overlays.marker_artists == []
 
 
 def _event(widget, name, index, trace=0, button=None):
@@ -120,50 +120,50 @@ class TestCursors:
     def test_hover_reports_the_nearest_sample(self, widget, qapp):
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.cursors_check.setChecked(True)
-        widget.cursors._on_motion(_event(widget, 'motion_notify_event', 5))
+        widget.overlays.cursors._on_motion(_event(widget, 'motion_notify_event', 5))
         line = widget.figure.axes[0].get_lines()[0]
-        tip = widget.cursors._hover[1].get_text()
+        tip = widget.overlays.cursors._hover[1].get_text()
         assert line.get_label() in tip
         assert f"θ = {line.get_xdata()[5]:.2f}°" in tip
 
     def test_two_clicks_give_a_delta_and_right_click_clears(self, widget, qapp):
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.cursors_check.setChecked(True)
-        widget.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.LEFT))
-        widget.cursors._on_click(_event(widget, 'button_press_event', 10, button=MouseButton.LEFT))
+        widget.overlays.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.LEFT))
+        widget.overlays.cursors._on_click(_event(widget, 'button_press_event', 10, button=MouseButton.LEFT))
         qapp.processEvents()
         line = widget.figure.axes[0].get_lines()[0]
         x, y = line.get_xdata(), line.get_ydata()
-        text = widget.cursors.delta_text()
+        text = widget.overlays.cursors.delta_text()
         assert f"Δθ = {x[10] - x[4]:.2f}°" in text
         assert f"Δ = {y[10] - y[4]:.2f}" in text
-        assert 'Δθ' in widget.readout_label.text()
+        assert 'Δθ' in widget.overlays.readout.text()
         assert len(widget.figure.axes[0].get_lines()) == 4     # cursors are not traces
-        widget.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.RIGHT))
-        assert widget.cursors.pinned() == [] and widget.cursors._pinned_artists == []
+        widget.overlays.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.RIGHT))
+        assert widget.overlays.cursors.pinned() == [] and widget.overlays.cursors._pinned_artists == []
 
     def test_pinned_cursors_survive_a_replot(self, widget, qapp):
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.cursors_check.setChecked(True)
-        widget.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.LEFT))
+        widget.overlays.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.LEFT))
         widget.update_plot(pattern=make_pattern(beam_deg=10.0), **COMMON)
-        assert len(widget.cursors.pinned()) == 1
-        assert widget.cursors._pinned_artists[0].axes is widget.figure.axes[0]
+        assert len(widget.overlays.cursors.pinned()) == 1
+        assert widget.overlays.cursors._pinned_artists[0].axes is widget.figure.axes[0]
 
     def test_disabled_by_the_polar_view_and_restored(self, widget, qapp):
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.cursors_check.setChecked(True)
-        assert widget.cursors.enabled
+        assert widget.overlays.cursors.enabled
         widget.update_plot(pattern=make_pattern(), frequencies=[8e9], phi_angles=[0.0], value_type='gain',
                            show_cross_pol=False, unwrap_phase=True, plot_format='2d_polar',
                            component='e_co', pattern_key='k')
-        assert not widget.cursors.enabled and not widget.cursors_check.isVisible()
+        assert not widget.overlays.cursors.enabled and not widget.cursors_check.isVisible()
         widget.update_plot(pattern=make_pattern(), **COMMON)
-        assert widget.cursors.enabled
+        assert widget.overlays.cursors.enabled
 
     def test_toolbar_mode_blocks_clicks(self, widget, qapp, monkeypatch):
         widget.update_plot(pattern=make_pattern(), **COMMON)
         widget.cursors_check.setChecked(True)
         monkeypatch.setattr(type(widget.toolbar), 'mode', property(lambda self: 'zoom rect'), raising=False)
-        widget.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.LEFT))
-        assert widget.cursors.pinned() == []
+        widget.overlays.cursors._on_click(_event(widget, 'button_press_event', 4, button=MouseButton.LEFT))
+        assert widget.overlays.cursors.pinned() == []

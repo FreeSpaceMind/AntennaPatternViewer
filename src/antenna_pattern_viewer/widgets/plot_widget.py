@@ -16,13 +16,9 @@ from pathlib import Path
 
 from ..plotting import plot_multiple_patterns
 from ..plot_style import PlotStyle, apply_style, cycle_colors, series_labels
-from ..pattern_markers import (MarkerConfig, analyze_cut, custom_values, describe, draw_markers,
-                               levels_for)
-from ..widgets.readout_panel import ReadoutPanel
 from ..plot_layouts import (plot_amplitude_phase, plot_frequency_sweep, plot_polar_cut,
                             plot_small_multiples)
-from ..spec_mask import SpecMask, draw_masks, mask_report
-from ..plot_cursors import CursorTracker
+from .plot_overlays import PlotOverlays
 from PyQt6.QtCore import QSettings
 
 import logging
@@ -68,14 +64,8 @@ class PlotWidget(QWidget):
         self._comparison_args = None
         self.current_sweep_metric = 'peak_gain'
         self.current_pattern_name = None
-        self.marker_config = MarkerConfig()
-        self.markers_dialog = None
         self._data_axes = []          # the axes carrying data, in order
         self._marker_axes = []        # the subset markers and masks go on
-        self.masks = []
-        self.mask_dialog = None
-        self._mask_artists = []
-        self._mask_text = ""
         self._load_styles()
         self.current_colorbar = None
 
@@ -236,22 +226,16 @@ class PlotWidget(QWidget):
 
         format_layout.addStretch()
         
-        # Readouts for markers, masks and cursors: a fixed-height, scrollable
-        # panel that can be collapsed, so many traces cannot crowd the plot.
-        self.readout_label = ReadoutPanel()
-        self.readout_label.setVisible(False)
-        self._marker_artists = []
-        self._marker_text = ""
-        self._cursor_text = ""
-        self.cursors = CursorTracker(self.canvas, lambda: self._data_axes or list(self.figure.axes),
-                                     toolbar=self.toolbar)
-        self.cursors.on_readout = self._on_cursor_readout
+        # Markers, masks, cursors and their readout panel
+        self.overlays = PlotOverlays(self, self.canvas, self.toolbar,
+                                     lambda: self._data_axes or list(self.figure.axes),
+                                     redraw=self._redraw_overlays)
 
         # Add to main layout
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
         layout.addLayout(format_layout)
-        layout.addWidget(self.readout_label)
+        layout.addWidget(self.overlays.readout)
         
         self.setLayout(layout)
         
@@ -630,10 +614,7 @@ class PlotWidget(QWidget):
         self.markers_btn.setVisible(fmt in self.MARKER_FORMATS)
         self.cursors_check.setVisible(fmt in self.CURSOR_FORMATS)
         self.masks_btn.setVisible(fmt in self.MASK_FORMATS)
-        if fmt in self.CURSOR_FORMATS and self.cursors_check.isChecked():
-            self.cursors.enable()
-        else:
-            self.cursors.disable()
+        self.overlays.set_cursors_enabled(fmt in self.CURSOR_FORMATS and self.cursors_check.isChecked())
 
         if format_changing:
             self.restore_axis_limits(fmt)
@@ -808,8 +789,20 @@ class PlotWidget(QWidget):
 
         logger.info("Exported %d trace(s) to %s", len(traces), file_path)
 
-    # --------------------------------------------------- markers / cursors
-    MARKER_TRACE_LIMIT = 6
+    # --------------------------------------------- markers / masks / cursors
+    # The overlays (markers, masks, cursors, readout) live in PlotOverlays;
+    # the widget only decides when they apply and which axes they go on.
+    @property
+    def marker_config(self):
+        return self.overlays.marker_config
+
+    @property
+    def masks(self):
+        return self.overlays.masks
+
+    def _redraw_overlays(self):
+        if self.figure.axes:
+            self.update_plot_formatting()
 
     def _markers_apply(self) -> bool:
         fmt = self.current_plot_format
@@ -820,163 +813,26 @@ class PlotWidget(QWidget):
         # The amplitude panel is always gain; the others follow the value type
         return fmt == 'amp_phase' or self.current_value_type == 'gain'
 
-    def _draw_markers(self, axes=None):
-        """Mark the co-pol traces on the gain axes as the marker config asks."""
-        for artist in self._marker_artists:
-            try:
-                artist.remove()
-            except (ValueError, NotImplementedError):
-                pass
-        self._marker_artists = []
-        self._marker_text = ""
-        axes = list(self._marker_axes) if axes is None else list(axes)
-        if not axes or not self._markers_apply():
-            self._update_readout()
-            return
-        summaries = []
-        count = 0
-        for ax in axes:
-            if ax is None or hasattr(ax, 'set_theta_zero_location'):
-                continue
-            panel = f"[{ax.get_title()}] " if len(axes) > 1 and ax.get_title() else ""
-            seen_per_pattern: dict = {}
-            for line in ax.get_lines():
-                label = line.get_label()
-                name = line.get_gid()
-                if not line.get_visible() or 'cross' in label.lower():
-                    continue
-                if label.startswith('_') and name is None:
-                    continue
-                marker_set = self.marker_config.for_pattern(name)
-                if marker_set is None:
-                    continue
-                if count >= self.MARKER_TRACE_LIMIT:
-                    break
-                theta, values = line.get_xdata(), line.get_ydata()
-                metrics = analyze_cut(theta, values, levels_db=levels_for(marker_set))
-                customs = custom_values(theta, values, marker_set)
-                if metrics is None and not customs:
-                    continue
-                count += 1
-                self._marker_artists += draw_markers(ax, metrics, color=line.get_color(),
-                                                     marker_set=marker_set, customs=customs)
-                # A comparison labels only the first cut of each pattern
-                if label.startswith('_'):
-                    k = seen_per_pattern.get(name, 1) + 1
-                    seen_per_pattern[name] = k
-                    shown = f"{name} (cut {k})"
-                else:
-                    seen_per_pattern.setdefault(name, 1)
-                    shown = label
-                summaries.append(f"{panel}{shown}: {describe(metrics, marker_set, customs)}")
-        if count >= self.MARKER_TRACE_LIMIT:
-            summaries.append(f"… only the first {self.MARKER_TRACE_LIMIT} traces are marked")
-        self._marker_text = "\n".join(summaries)
-        self._update_readout()
-        if self.markers_dialog is not None and self.markers_dialog.isVisible():
-            self.markers_dialog.set_patterns(self.pattern_names())
-
     def pattern_names(self) -> list:
-        """Names of the patterns on the plot, in drawing order."""
-        names = []
-        for ax in self._data_axes or self.figure.axes:
-            for line in ax.get_lines():
-                name = line.get_gid()
-                if name and name not in names:
-                    names.append(name)
-        return names
+        return self.overlays.pattern_names()
 
-    def set_marker_config(self, config: MarkerConfig):
-        self.marker_config = config.copy()
-        if self.markers_dialog is not None:
-            self.markers_dialog.set_config(self.marker_config)
-        if self.figure.axes:
-            self.update_plot_formatting()
+    def set_marker_config(self, config):
+        self.overlays.set_marker_config(config)
 
     def open_markers_dialog(self):
-        from ..dialogs.markers_dialog import MarkersDialog
-
-        if self.markers_dialog is None:
-            self.markers_dialog = MarkersDialog(self.marker_config, self)
-            self.markers_dialog.config_changed.connect(self._on_marker_config_changed)
-        else:
-            self.markers_dialog.set_config(self.marker_config)
-        self.markers_dialog.set_patterns(self.pattern_names())
         if not self.markers_check.isChecked():
             self.markers_check.setChecked(True)      # opening the dialog means "I want markers"
-        self.markers_dialog.show()
-        self.markers_dialog.raise_()
-        self.markers_dialog.activateWindow()
-
-    def _on_marker_config_changed(self, config):
-        self.marker_config = config.copy()
-        if self.figure.axes:
-            self.update_plot_formatting()
+        self.overlays.open_markers_dialog()
 
     def _on_cursors_toggled(self, checked):
-        if checked and self.current_plot_format in self.CURSOR_FORMATS:
-            self.cursors.enable()
-        else:
-            self.cursors.disable()
-        self._update_readout()
+        self.overlays.set_cursors_enabled(bool(checked) and self.current_plot_format in self.CURSOR_FORMATS)
 
-    def _on_cursor_readout(self, text):
-        self._cursor_text = text
-        self._update_readout()
-
-    def _update_readout(self):
-        parts = [t for t in (self._cursor_text, self._mask_text, self._marker_text) if t]
-        self.readout_label.setText("\n".join(parts))
-        self.readout_label.setVisible(bool(parts))
-
-    # ------------------------------------------------------------ masks
     def set_masks(self, masks):
         """Replace the specification masks and redraw."""
-        self.masks = [SpecMask.from_dict(m.to_dict()) for m in masks]
-        if self.mask_dialog is not None:
-            self.mask_dialog.set_masks(self.masks)
-        if self.figure.axes:
-            self.update_plot_formatting()
+        self.overlays.set_masks(masks)
 
     def open_mask_dialog(self):
-        from ..dialogs.mask_dialog import MaskDialog
-
-        if self.mask_dialog is None:
-            self.mask_dialog = MaskDialog(self.masks, self)
-            self.mask_dialog.masks_changed.connect(self._on_masks_changed)
-        else:
-            self.mask_dialog.set_masks(self.masks)
-        self.mask_dialog.show()
-        self.mask_dialog.raise_()
-        self.mask_dialog.activateWindow()
-
-    def _on_masks_changed(self, masks):
-        self.masks = list(masks)
-        if self.figure.axes:
-            self.update_plot_formatting()
-
-    def _draw_masks(self):
-        """Draw the masks on the marker axes and report violations."""
-        for artist in self._mask_artists:
-            try:
-                artist.remove()
-            except (ValueError, NotImplementedError):
-                pass
-        self._mask_artists = []
-        self._mask_text = ""
-        fmt = self.current_plot_format
-        axes = [a for a in self._marker_axes if a is not None]
-        if not self.masks or fmt not in self.MASK_FORMATS or not axes:
-            return
-        reports = []
-        for ax in axes:
-            self._mask_artists += draw_masks(ax, self.masks)
-            traces = [(line.get_label(), line.get_xdata(), line.get_ydata())
-                      for line in ax.get_lines()
-                      if not line.get_label().startswith('_') and line.get_visible()]
-            panel = f"[{ax.get_title()}] " if len(axes) > 1 and ax.get_title() else ""
-            reports += [panel + line for line in mask_report(self.masks, traces)]
-        self._mask_text = "\n".join(reports)
+        self.overlays.open_mask_dialog()
 
     def strip_state(self) -> dict:
         """The plot strip's settings, for a session file."""
@@ -989,7 +845,7 @@ class PlotWidget(QWidget):
             'normalize': self.normalize_check.isChecked(),
             'smooth': self.smooth_check.isChecked(),
             'markers': self.markers_check.isChecked(),
-            'marker_config': self.marker_config.to_dict(),
+            **self.overlays.state(),
             'cursors': self.cursors_check.isChecked(),
             'limits': {key: dict(value) for key, value in self.axis_limits_memory.items()},
             'current_limits': {'x_min': self.x_phi_min_edit.text(), 'x_max': self.x_phi_max_edit.text(),
@@ -1009,8 +865,7 @@ class PlotWidget(QWidget):
                 widget.blockSignals(True)
                 widget.setChecked(bool(state[key]))
                 widget.blockSignals(False)
-        if state.get('marker_config'):
-            self.marker_config = MarkerConfig.from_dict(state['marker_config'])
+        self.overlays.apply_state(state)
         for key, fields in (state.get('limits') or {}).items():
             self._limit_fields(key).update({k: str(v) for k, v in fields.items()})
         # The fields on screen follow the memory of whatever format is (or
@@ -1149,7 +1004,8 @@ class PlotWidget(QWidget):
 
         # Specification masks go on before the style so its legend rebuild
         # picks them up.
-        self._draw_masks()
+        self.overlays.draw_masks(self._marker_axes,
+                                 enabled=self.current_plot_format in self.MASK_FORMATS)
 
         # The user's style goes on last so it wins over the plotting defaults.
         style = self.current_style()
@@ -1165,8 +1021,8 @@ class PlotWidget(QWidget):
         if self.style_dialog is not None and self.style_dialog.isVisible():
             self.style_dialog.set_series(series_labels(ax))
 
-        self._draw_markers()
-        self.cursors.refresh(axes)
+        self.overlays.draw_markers(self._marker_axes, enabled=self._markers_apply())
+        self.overlays.cursors.refresh(axes)
 
         # The plotting functions used to call tight_layout(), which leaves a
         # placeholder engine and switched the figure's tight engine off on
